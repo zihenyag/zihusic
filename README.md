@@ -1,122 +1,169 @@
 # zihusic
 
-**zihusic** is a beautiful, lightweight local music player for macOS. It is built with SwiftUI and AVFoundation, opens straight into the player, and keeps the interface focused on local albums, artwork, lyrics, and playback.
+**zihusic** is a beautiful, lightweight local music player for macOS.
 
-**zihusic** 是一个好看的、特别轻量的 macOS 本地音乐播放器。它使用 SwiftUI 和 AVFoundation 编写，打开后直接进入播放页面，专注于本地歌曲、封面、歌词和播放体验。
+It is designed for people who keep their music files locally and want a clean player that opens directly into the library, artwork, lyrics, and playback controls. zihusic does not copy your music into its own storage. It keeps only lightweight library metadata and artwork cache, so your files stay where they are.
 
-## Highlights
+中文说明见下方。
 
-- Native macOS SwiftUI interface with automatic light and dark mode.
-- Local-first library: scan a folder, cache only metadata/artwork, never copy the music files.
-- Lossless playback for FLAC and common formats through AVFoundation.
-- Smooth lyric view for matching `.ass` and `.lrc` lyric files.
-- Artwork, title, artist, album, duration, sample rate, bit depth, and channel metadata.
-- Search by title, artist, and album.
-- Playback modes: shuffle, repeat one, and repeat all.
-- Adjustable sidebar/list layout with remembered widths.
+## Download
 
-## 功能亮点
+Download the latest build from [GitHub Releases](https://github.com/zihenyag/zihusic/releases).
 
-- 原生 macOS SwiftUI 界面，自动跟随系统浅色/深色模式。
-- 本地优先：扫描文件夹，只缓存歌曲信息和封面，不复制音乐文件本体。
-- 支持 FLAC 无损播放，也支持常见音频格式。
-- 支持同名 `.ass` 和 `.lrc` 歌词文件，并显示平滑滚动歌词。
-- 读取封面、歌曲名、歌手、专辑、时长、采样率、位深、声道等信息。
-- 支持按歌曲名、歌手、专辑搜索。
-- 支持随机播放、单曲循环、列表循环。
-- 左侧列表布局可调节，并会记忆宽度。
-
-## Supported Formats / 支持格式
-
-`flac`, `mp3`, `m4a`, `aac`, `wav`, `aiff`, `aif`, `caf`, `alac`
-
-## Requirements / 环境要求
-
-- macOS 14 or later / macOS 14 或更新版本
-- Xcode Command Line Tools / Xcode 命令行工具
-- Swift 5.9 or later / Swift 5.9 或更新版本
-
-Optional tools improve metadata reading:
-
-可选工具可以增强元数据读取：
-
-```bash
-brew install flac ffmpeg
-```
-
-## Run From Source / 从源码运行
-
-```bash
-./script/build_and_run.sh
-```
-
-To verify the app process starts successfully:
-
-确认应用进程能正常启动：
-
-```bash
-./script/build_and_run.sh --verify
-```
-
-The script builds the SwiftPM target, creates `dist/zihusic.app`, generates the app icon, and launches the app.
-
-脚本会构建 SwiftPM target，生成 `dist/zihusic.app`，生成应用图标，并启动应用。
-
-## Download Builds / 下载版本
-
-For public sharing, the simplest release artifact is:
-
-对外分享时，最简单的发布文件是：
+The app is currently distributed as a zipped macOS app:
 
 ```text
 zihusic.app.zip
 ```
 
-Build it locally:
+Unzip it, move `zihusic.app` to `Applications`, and open it. Because this early build is not notarized with an Apple Developer ID, macOS may ask for confirmation the first time you launch it. If that happens, right-click the app and choose **Open**.
 
-本地生成方式：
+## What It Does
+
+- Plays local music with a focused native macOS interface.
+- Supports FLAC, MP3, M4A, AAC, WAV, AIFF, AIF, CAF, and ALAC.
+- Shows album artwork, title, artist, album, duration, and audio details.
+- Displays matching `.ass` and `.lrc` lyrics next to the current track.
+- Scans `~/Music` by default, with folder import available from the **Music** menu.
+- Keeps your audio files in place and only caches metadata/artwork.
+- Supports search, shuffle, repeat one, and repeat all.
+- Follows the system light/dark appearance automatically.
+
+## Lyrics
+
+Place a lyric file next to the audio file with the same base name:
+
+```text
+Song.flac
+Song.ass
+```
+
+or:
+
+```text
+Song.mp3
+Song.lrc
+```
+
+zihusic will load it automatically when the track is selected.
+
+## Build From Source
+
+Requirements:
+
+- macOS 14 or later
+- Xcode Command Line Tools
+- Swift 5.9 or later
+
+Optional metadata helpers:
+
+```bash
+brew install flac ffmpeg
+```
+
+Build and run:
+
+```bash
+./script/build_and_run.sh
+```
+
+Build, run, and verify the process started:
 
 ```bash
 ./script/build_and_run.sh --verify
+```
+
+Create a zipped app artifact:
+
+```bash
 ditto -c -k --sequesterRsrc --keepParent dist/zihusic.app dist/zihusic.app.zip
 ```
 
-Then upload `dist/zihusic.app.zip` to a GitHub Release.
+## License
 
-然后把 `dist/zihusic.app.zip` 上传到 GitHub Release。
+MIT License. See [LICENSE](LICENSE).
 
-This project is currently unsigned and not notarized. On another Mac, the first launch may require right-clicking the app and choosing **Open**.
+---
 
-当前版本没有做 Apple Developer ID 签名和 notarization。在其他 Mac 上第一次打开时，可能需要右键应用并选择 **打开**。
+# zihusic 中文说明
 
-## Default Music Folder / 默认音乐目录
+**zihusic** 是一个好看的、特别轻量的 macOS 本地音乐播放器。
 
-zihusic scans the current user's `~/Music` folder by default. You can import a different folder from the app's **Music** menu.
+它适合已经把音乐文件放在本地的人：打开应用后直接进入播放页面，左侧是音乐列表，右侧是封面、歌曲信息和歌词，底部是播放控制。zihusic 不会把你的音乐复制到自己的目录里，只会保存轻量的资料库信息和封面缓存，所以不会额外占用大量空间。
 
-zihusic 默认扫描当前用户的 `~/Music` 文件夹。也可以在应用的 **音乐** 菜单中导入其他文件夹。
+## 下载
 
-The value is defined in:
+在 [GitHub Releases](https://github.com/zihenyag/zihusic/releases) 下载最新版本。
 
-路径定义在：
-
-```text
-Sources/ZihuMusic/Support/AppDirectories.swift
-```
-
-## Project Structure / 项目结构
+当前发布形式是压缩后的 macOS app：
 
 ```text
-Package.swift                  SwiftPM package
-script/build_and_run.sh         Build, package, and run script
-Sources/ZihuMusic/App           App entry
-Sources/ZihuMusic/Models        Data models
-Sources/ZihuMusic/Stores        Library and download state
-Sources/ZihuMusic/Services      Playback, metadata, lyrics, and writing services
-Sources/ZihuMusic/Support       Paths and utilities
-Sources/ZihuMusic/Views         SwiftUI views
-Sources/ZihuMusic/Icon/icon.png App icon source
+zihusic.app.zip
 ```
 
-## License / 许可证
+解压后把 `zihusic.app` 放到 `Applications` 中即可。当前早期版本还没有做 Apple Developer ID notarization，所以第一次打开时 macOS 可能会提示拦截。如果遇到这种情况，右键应用并选择 **打开**。
 
-MIT License. See `LICENSE`.
+## 功能
+
+- 使用原生 macOS 界面播放本地音乐。
+- 支持 FLAC、MP3、M4A、AAC、WAV、AIFF、AIF、CAF、ALAC。
+- 显示封面、歌曲名、歌手、专辑、时长和音频信息。
+- 支持同名 `.ass` 和 `.lrc` 歌词。
+- 默认扫描 `~/Music`，也可以在应用的 **音乐** 菜单中导入其他文件夹。
+- 不复制音乐文件本体，只缓存资料库信息和封面。
+- 支持搜索、随机播放、单曲循环和列表循环。
+- 自动跟随系统浅色/深色模式。
+
+## 歌词
+
+把歌词文件放在音乐文件旁边，并保持同名：
+
+```text
+Song.flac
+Song.ass
+```
+
+或者：
+
+```text
+Song.mp3
+Song.lrc
+```
+
+选中歌曲后，zihusic 会自动读取对应歌词。
+
+## 从源码构建
+
+环境要求：
+
+- macOS 14 或更新版本
+- Xcode Command Line Tools
+- Swift 5.9 或更新版本
+
+可选的元数据读取工具：
+
+```bash
+brew install flac ffmpeg
+```
+
+构建并运行：
+
+```bash
+./script/build_and_run.sh
+```
+
+构建、运行并确认进程已启动：
+
+```bash
+./script/build_and_run.sh --verify
+```
+
+生成可上传到 Release 的 app 压缩包：
+
+```bash
+ditto -c -k --sequesterRsrc --keepParent dist/zihusic.app dist/zihusic.app.zip
+```
+
+## 许可证
+
+MIT License. 详见 [LICENSE](LICENSE)。
