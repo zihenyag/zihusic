@@ -89,21 +89,11 @@ This project is currently unsigned and not notarized. On another Mac, the first 
 
 当前版本没有做 Apple Developer ID 签名和 notarization。在其他 Mac 上第一次打开时，可能需要右键应用并选择 **打开**。
 
-## Release vs DMG / Release 和 DMG 是什么
-
-A GitHub **Release** is the place where users download a finished version of the app. The repository stores source code; Releases store packaged builds such as `zihusic.app.zip` or `zihusic.dmg`.
-
-GitHub **Release** 可以理解成“给用户下载正式版本的地方”。代码仓库放源码，Release 放已经打包好的应用，比如 `zihusic.app.zip` 或 `zihusic.dmg`。
-
-A **DMG** is the common macOS installer image. It is useful for polished distribution, but it is not required for a lightweight personal/open-source app. A zipped `.app` is enough for the first public version.
-
-**DMG** 是 macOS 常见安装镜像，适合更正式的分发，但不是轻量个人/开源应用的必需项。首个公开版本用压缩后的 `.app` 就够了。
-
 ## Default Music Folder / 默认音乐目录
 
-zihusic uses `/Volumes/disk/download/music` when that folder exists. Otherwise it falls back to the current user's `~/Music` folder.
+zihusic scans the current user's `~/Music` folder by default. You can import a different folder from the app's **Music** menu.
 
-如果 `/Volumes/disk/download/music` 存在，zihusic 会优先使用它；否则会使用当前用户的 `~/Music` 文件夹。
+zihusic 默认扫描当前用户的 `~/Music` 文件夹。也可以在应用的 **音乐** 菜单中导入其他文件夹。
 
 The value is defined in:
 

@@ -4,12 +4,7 @@ enum AppDirectories {
     static let appName = "ZihuMusic"
 
     static var defaultMusicFolder: URL {
-        let localFolder = URL(fileURLWithPath: "/Volumes/disk/download/music", isDirectory: true)
-        if FileManager.default.fileExists(atPath: localFolder.path) {
-            return localFolder
-        }
-
-        return FileManager.default.urls(for: .musicDirectory, in: .userDomainMask).first
+        FileManager.default.urls(for: .musicDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent("Music", isDirectory: true)
     }
 
