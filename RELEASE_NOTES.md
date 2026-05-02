@@ -1,4 +1,26 @@
-# zihusic v0.1.0
+# zihusic Release Notes
+
+## v0.1.1
+
+### English
+
+Packaging hotfix for the public macOS build.
+
+- Build release binaries instead of debug binaries.
+- Remove local extended attributes before packaging.
+- Ad-hoc sign the app bundle so macOS can validate the bundle structure.
+- Add troubleshooting notes for macOS download quarantine.
+
+### 中文
+
+公开 macOS 构建包的打包修复版本。
+
+- 改为构建 release 二进制。
+- 打包前移除本地扩展属性。
+- 对整个 app bundle 做 ad-hoc 签名，让 macOS 能验证 bundle 结构。
+- 增加 macOS 下载隔离提示的处理说明。
+
+## v0.1.0
 
 ## English
 

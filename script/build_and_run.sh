@@ -5,6 +5,8 @@ MODE="${1:-run}"
 APP_NAME="zihusic"
 BUNDLE_ID="com.local.zihusic"
 MIN_SYSTEM_VERSION="14.0"
+APP_VERSION="${APP_VERSION:-0.1.1}"
+CONFIGURATION="${CONFIGURATION:-release}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -21,8 +23,8 @@ ICON_FILE="$APP_RESOURCES/AppIcon.icns"
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 pkill -x "ZihuMusic" >/dev/null 2>&1 || true
 
-swift build --package-path "$ROOT_DIR"
-BUILD_BINARY="$(swift build --package-path "$ROOT_DIR" --show-bin-path)/$APP_NAME"
+swift build --package-path "$ROOT_DIR" -c "$CONFIGURATION"
+BUILD_BINARY="$(swift build --package-path "$ROOT_DIR" -c "$CONFIGURATION" --show-bin-path)/$APP_NAME"
 
 rm -rf "$APP_BUNDLE" "$DIST_DIR/ZihuMusic.app"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES"
@@ -63,11 +65,24 @@ cat >"$INFO_PLIST" <<PLIST
   <string>APPL</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
+  <key>CFBundleShortVersionString</key>
+  <string>$APP_VERSION</string>
+  <key>CFBundleVersion</key>
+  <string>$APP_VERSION</string>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
 </dict>
 </plist>
 PLIST
+
+if command -v xattr >/dev/null 2>&1; then
+  xattr -cr "$APP_BUNDLE" >/dev/null 2>&1 || true
+fi
+
+if command -v codesign >/dev/null 2>&1; then
+  codesign --force --deep --sign - "$APP_BUNDLE"
+  codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
+fi
 
 open_app() {
   /usr/bin/open -n "$APP_BUNDLE"

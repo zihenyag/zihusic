@@ -18,6 +18,12 @@ zihusic.app.zip
 
 Unzip it, move `zihusic.app` to `Applications`, and open it. Because this early build is not notarized with an Apple Developer ID, macOS may ask for confirmation the first time you launch it. If that happens, right-click the app and choose **Open**.
 
+If macOS says the app is damaged after downloading it, remove the download quarantine flag and open it again:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/zihusic.app
+```
+
 ## What It Does
 
 - Plays local music with a focused native macOS interface.
@@ -76,6 +82,7 @@ Build, run, and verify the process started:
 Create a zipped app artifact:
 
 ```bash
+./script/build_and_run.sh --verify
 ditto -c -k --sequesterRsrc --keepParent dist/zihusic.app dist/zihusic.app.zip
 ```
 
@@ -102,6 +109,12 @@ zihusic.app.zip
 ```
 
 解压后把 `zihusic.app` 放到 `Applications` 中即可。当前早期版本还没有做 Apple Developer ID notarization，所以第一次打开时 macOS 可能会提示拦截。如果遇到这种情况，右键应用并选择 **打开**。
+
+如果下载后 macOS 提示应用“已损坏”，可以先移除下载隔离标记，再重新打开：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/zihusic.app
+```
 
 ## 功能
 
@@ -161,6 +174,7 @@ brew install flac ffmpeg
 生成可上传到 Release 的 app 压缩包：
 
 ```bash
+./script/build_and_run.sh --verify
 ditto -c -k --sequesterRsrc --keepParent dist/zihusic.app dist/zihusic.app.zip
 ```
 
