@@ -22,22 +22,20 @@ struct ZihuMusicApp: App {
                 .environmentObject(player)
                 .environmentObject(downloads)
                 .frame(minWidth: 1180, minHeight: 760)
-                .task {
-                    await library.importDefaultFolder()
-                }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandMenu("音乐") {
-                Button("导入文件夹...") {
+                Button("选择文件夹...") {
                     Task { await library.chooseAndImportFolder() }
                 }
                 .keyboardShortcut("o", modifiers: [.command])
 
-                Button("重新扫描默认文件夹") {
-                    Task { await library.importDefaultFolder() }
+                Button("重新扫描该文件夹") {
+                    Task { await library.rescanLastImportFolder() }
                 }
                 .keyboardShortcut("r", modifiers: [.command])
+                .disabled(!library.hasImportFolder)
 
                 Divider()
 

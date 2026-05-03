@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import SwiftUI
 
 private extension Notification.Name {
@@ -68,13 +69,13 @@ private enum AppColors {
         light: (0.50, 0.50, 0.50, 0.08),
         dark: (1.00, 1.00, 1.00, 0.08)
     )
-    static let searchStroke = Color.adaptive(
-        light: (0.58, 0.51, 0.83, 0.24),
-        dark: (0.77, 0.66, 1.00, 0.28)
-    )
     static let shadow = Color.adaptive(
         light: (0.23, 0.15, 0.42, 0.12),
         dark: (0.00, 0.00, 0.00, 0.35)
+    )
+    static let searchStroke = Color.adaptive(
+        light: (0.58, 0.51, 0.83, 0.24),
+        dark: (0.77, 0.66, 1.00, 0.28)
     )
 }
 
@@ -105,70 +106,61 @@ enum PlaybackMode: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @EnvironmentObject private var library: MusicLibraryStore
     @EnvironmentObject private var player: AudioPlayerService
-    @AppStorage("leftPaneWidth") private var leftPaneWidth = 430.0
-    @AppStorage("artistColumnWidth") private var artistColumnWidth = 104.0
-    @AppStorage("durationColumnWidth") private var durationColumnWidth = 74.0
-    @State private var leftDragStart: CGFloat?
     @State private var playbackMode: PlaybackMode = .listLoop
-
-    private let minLeftWidth: CGFloat = 320
-    private let minRightWidth: CGFloat = 720
+    @State private var isSidebarVisible = true
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .bottom) {
             AppBackdrop()
 
-            VStack(spacing: 0) {
-                GeometryReader { geometry in
-                    let leftWidth = clampedLeftWidth(total: geometry.size.width)
+            HStack(spacing: 0) {
+                if isSidebarVisible {
+                    LibraryPane(
+                        tracks: visibleTracks,
+                        selectedTrackID: $library.selectedTrackID,
+                        play: play
+                    )
+                    .frame(width: TrackListMetrics.sidebarWidth)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+                    .zIndex(2)
+                }
 
-                    HStack(spacing: 0) {
-                        LibraryPane(
-                            tracks: visibleTracks,
-                            artistColumnWidth: $artistColumnWidth,
-                            durationColumnWidth: $durationColumnWidth,
-                            selectedTrackID: $library.selectedTrackID,
-                            play: play
-                        )
-                        .frame(width: leftWidth)
-                        .overlay(alignment: .trailing) {
-                            InvisibleResizeHandle()
-                                .offset(x: InvisibleResizeHandle.hitWidth / 2)
-                                .gesture(
-                                    DragGesture(minimumDistance: 0)
-                                        .onChanged { value in
-                                            if leftDragStart == nil { leftDragStart = leftWidth }
-                                            let next = (leftDragStart ?? leftWidth) + value.translation.width
-                                            leftPaneWidth = clampedLeftWidth(total: geometry.size.width, proposed: next)
-                                        }
-                                        .onEnded { _ in leftDragStart = nil }
-                                )
-                        }
-                        .zIndex(2)
-
-                        PlaybackPane(track: activeTrack)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .onTapGesture {
-                                NotificationCenter.default.post(name: .collapseZihuSearch, object: nil)
-                            }
+                PlaybackPane(track: activeTrack)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onTapGesture {
+                        NotificationCenter.default.post(name: .collapseZihuSearch, object: nil)
                     }
-                }
-
-                Divider().opacity(0.42)
-
-                PlayerDock(
-                    playbackMode: $playbackMode,
-                    previous: playPrevious,
-                    toggle: togglePlayback,
-                    next: playNext
-                )
-                .frame(height: 118)
-                .onTapGesture {
-                    NotificationCenter.default.post(name: .collapseZihuSearch, object: nil)
-                }
             }
+            .animation(.easeInOut(duration: 0.25), value: isSidebarVisible)
+            .ignoresSafeArea(edges: .top)
+
+            PlayerDock(
+                playbackMode: $playbackMode,
+                previous: playPrevious,
+                toggle: togglePlayback,
+                next: playNext
+            )
+            .frame(maxWidth: 1040)
+            .frame(height: TrackListMetrics.bottomGlassHeight)
+            .padding(.horizontal, TrackListMetrics.bottomGlassInset)
+            .padding(.bottom, TrackListMetrics.bottomGlassInset)
+            .onTapGesture {
+                NotificationCenter.default.post(name: .collapseZihuSearch, object: nil)
+            }
+            .zIndex(20)
+        }
+        .overlay(alignment: .topLeading) {
+            UnifiedAppChrome(
+                isSidebarVisible: $isSidebarVisible,
+                searchText: $library.searchText
+            )
+            .padding(.leading, 25)
+            .padding(.top, 25)
+            .zIndex(40)
+            .ignoresSafeArea(edges: .top)
         }
         .foregroundStyle(AppColors.primaryText)
+        .background(WindowStandardButtonHider())
         .onAppear {
             player.onFinished = { handleFinished() }
             if library.selectedTrackID == nil {
@@ -189,13 +181,13 @@ struct ContentView: View {
                 || $0.displayAlbum.localizedCaseInsensitiveContains(query)
         }
 
-        return filtered.sorted {
-            let left = sortKey($0.displayTitle)
-            let right = sortKey($1.displayTitle)
-            if left == right {
-                return $0.displayArtist.localizedCaseInsensitiveCompare($1.displayArtist) == .orderedAscending
+        return filtered.sorted { left, right in
+            let leftTitle = sortKey(left.displayTitle)
+            let rightTitle = sortKey(right.displayTitle)
+            if leftTitle == rightTitle {
+                return sortKey(left.displayArtist) < sortKey(right.displayArtist)
             }
-            return left < right
+            return leftTitle < rightTitle
         }
     }
 
@@ -253,11 +245,6 @@ struct ContentView: View {
         play(random)
     }
 
-    private func clampedLeftWidth(total: CGFloat, proposed: CGFloat? = nil) -> CGFloat {
-        let maximum = max(minLeftWidth, total - minRightWidth)
-        return min(max(proposed ?? CGFloat(leftPaneWidth), minLeftWidth), maximum)
-    }
-
     private func sortKey(_ value: String) -> String {
         let mutable = NSMutableString(string: value) as CFMutableString
         CFStringTransform(mutable, nil, kCFStringTransformToLatin, false)
@@ -275,37 +262,38 @@ private struct AppBackdrop: View {
     }
 }
 
-private struct InvisibleResizeHandle: View {
-    static let hitWidth: CGFloat = 12
-
-    var body: some View {
-        Color.clear
-        .frame(width: Self.hitWidth)
-        .contentShape(Rectangle())
-        .help("拖动调整宽度")
-    }
-}
-
 private enum TrackListMetrics {
-    static let rowHorizontalPadding: CGFloat = 10
-    static let artworkColumnWidth: CGFloat = 72
-    static let minArtistWidth: CGFloat = 72
-    static let maxArtistWidth: CGFloat = 170
-    static let minDurationWidth: CGFloat = 58
-    static let maxDurationWidth: CGFloat = 104
+    static let tableTopPadding: CGFloat = 50
+    static let tableHorizontalInset: CGFloat = 10
+    static let tableRowHeight: CGFloat = 54
+    static let bottomGlassHeight: CGFloat = 112
+    static let bottomGlassInset: CGFloat = 18
+    static let bottomContentInset: CGFloat = bottomGlassHeight + bottomGlassInset * 2
+    static let bottomGlassCornerRadius: CGFloat = 32
+    static let artworkSize: CGFloat = 38
+    static let coverColumnWidth: CGFloat = 56
+    static let titleColumnWidth: CGFloat = 168
+    static let artistColumnWidth: CGFloat = 112
+    static let durationColumnWidth: CGFloat = 56
+    static let columnTextInset: CGFloat = 6
+    static let playingColumnWidth: CGFloat = 56
+    static let tableContentWidth: CGFloat = coverColumnWidth
+        + titleColumnWidth
+        + artistColumnWidth
+        + durationColumnWidth
+        + playingColumnWidth
+    static let sidebarWidth: CGFloat = tableContentWidth + tableHorizontalInset * 2
 }
 
 private struct LibraryPane: View {
     @EnvironmentObject private var library: MusicLibraryStore
     @EnvironmentObject private var player: AudioPlayerService
     let tracks: [MusicTrack]
-    @Binding var artistColumnWidth: Double
-    @Binding var durationColumnWidth: Double
     @Binding var selectedTrackID: MusicTrack.ID?
     var play: (MusicTrack) -> Void
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             AppColors.sidebarBackground
                 .ignoresSafeArea(edges: .top)
                 .contentShape(Rectangle())
@@ -313,105 +301,758 @@ private struct LibraryPane: View {
                     NotificationCenter.default.post(name: .collapseZihuSearch, object: nil)
                 }
 
-            VStack(spacing: 0) {
-                LibraryHeader(
-                    searchText: $library.searchText,
-                    artistColumnWidth: $artistColumnWidth,
-                    durationColumnWidth: $durationColumnWidth
-                )
-                .padding(.horizontal, TrackListMetrics.rowHorizontalPadding * 2)
+            LibraryTrackTableView(
+                tracks: tracks,
+                selectedTrackID: $selectedTrackID,
+                playingTrackID: player.currentTrack?.id,
+                isPlaying: player.isPlaying,
+                artworkURL: { library.artworkURL(for: $0) },
+                play: play
+            )
+        }
+    }
+}
 
-                ScrollView(showsIndicators: false) {
-                    LazyVStack(spacing: 2) {
-                        ForEach(tracks) { track in
-                            LibraryRow(
-                                track: track,
-                                isSelected: selectedTrackID == track.id,
-                                isPlaying: player.currentTrack?.id == track.id && player.isPlaying,
-                                artworkURL: library.artworkURL(for: track),
-                                artistColumnWidth: CGFloat(artistColumnWidth),
-                                durationColumnWidth: CGFloat(durationColumnWidth)
-                            ) {
-                                play(track)
-                            }
-                        }
+private extension NSColor {
+    static func zihuAdaptive(
+        light: (Double, Double, Double, Double),
+        dark: (Double, Double, Double, Double)
+    ) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let value = isDark ? dark : light
+            return NSColor(
+                red: value.0,
+                green: value.1,
+                blue: value.2,
+                alpha: value.3
+            )
+        }
+    }
+}
+
+private enum AppNSColors {
+    static let selectedRow = NSColor.zihuAdaptive(
+        light: (0.47, 0.34, 0.86, 0.18),
+        dark: (0.58, 0.41, 1.00, 0.24)
+    )
+    static let primaryText = NSColor.zihuAdaptive(
+        light: (0.16, 0.14, 0.31, 1),
+        dark: (0.88, 0.84, 0.97, 1)
+    )
+    static let secondaryText = NSColor.zihuAdaptive(
+        light: (0.32, 0.28, 0.50, 1),
+        dark: (0.74, 0.68, 0.88, 1)
+    )
+    static let tertiaryText = NSColor.zihuAdaptive(
+        light: (0.45, 0.40, 0.60, 1),
+        dark: (0.58, 0.52, 0.72, 1)
+    )
+    static let accent = NSColor.zihuAdaptive(
+        light: (0.38, 0.25, 0.76, 1),
+        dark: (0.74, 0.59, 1.00, 1)
+    )
+    static let placeholderFill = NSColor.zihuAdaptive(
+        light: (0.50, 0.45, 0.72, 0.18),
+        dark: (0.74, 0.62, 1.00, 0.18)
+    )
+}
+
+private final class LibraryScrollView: NSScrollView {
+    override var acceptsFirstResponder: Bool { true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        hasVerticalScroller = false
+        hasHorizontalScroller = false
+        verticalScroller?.isHidden = true
+        horizontalScroller?.isHidden = true
+    }
+}
+
+private final class LibraryTableView: NSTableView {
+    override var acceptsFirstResponder: Bool { true }
+}
+
+private enum LibraryTableColumn: String, CaseIterable {
+    case cover
+    case title
+    case artist
+    case duration
+    case playing
+
+    var identifier: NSUserInterfaceItemIdentifier {
+        NSUserInterfaceItemIdentifier("zihu.\(rawValue)")
+    }
+
+    init?(identifier: NSUserInterfaceItemIdentifier) {
+        self.init(rawValue: identifier.rawValue.replacingOccurrences(of: "zihu.", with: ""))
+    }
+}
+
+private struct LibraryTrackTableView: NSViewRepresentable {
+    let tracks: [MusicTrack]
+    @Binding var selectedTrackID: MusicTrack.ID?
+    let playingTrackID: MusicTrack.ID?
+    let isPlaying: Bool
+    let artworkURL: (MusicTrack) -> URL?
+    let play: (MusicTrack) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeNSView(context: Context) -> LibraryScrollView {
+        let scrollView = LibraryScrollView()
+        configure(scrollView)
+
+        let tableView = LibraryTableView()
+        tableView.headerView = nil
+        tableView.backgroundColor = .clear
+        tableView.enclosingScrollView?.drawsBackground = false
+        tableView.selectionHighlightStyle = .none
+        tableView.rowHeight = TrackListMetrics.tableRowHeight
+        tableView.intercellSpacing = NSSize(width: 0, height: 1)
+        tableView.focusRingType = .none
+        tableView.usesAlternatingRowBackgroundColors = false
+        tableView.columnAutoresizingStyle = .noColumnAutoresizing
+        tableView.allowsMultipleSelection = false
+        tableView.allowsEmptySelection = true
+        tableView.dataSource = context.coordinator
+        tableView.delegate = context.coordinator
+        tableView.target = context.coordinator
+        tableView.action = #selector(Coordinator.tableClicked(_:))
+
+        LibraryTableColumn.allCases.forEach { tableColumn in
+            let column = NSTableColumn(identifier: tableColumn.identifier)
+            column.title = ""
+            column.resizingMask = []
+            column.isEditable = false
+            tableView.addTableColumn(column)
+        }
+
+        scrollView.documentView = tableView
+        scrollView.contentInsets = NSEdgeInsets(
+            top: 0,
+            left: TrackListMetrics.tableHorizontalInset,
+            bottom: 0,
+            right: TrackListMetrics.tableHorizontalInset
+        )
+        scrollView.scrollerInsets = NSEdgeInsetsZero
+
+        context.coordinator.tableView = tableView
+        context.coordinator.resizeColumns()
+        context.coordinator.reloadAndSyncSelection()
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: LibraryScrollView, context: Context) {
+        context.coordinator.parent = self
+        context.coordinator.syncIfNeeded()
+    }
+
+    private func configure(_ scrollView: NSScrollView) {
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.verticalScroller?.isHidden = true
+        scrollView.horizontalScroller?.isHidden = true
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.drawsBackground = false
+        scrollView.backgroundColor = .clear
+        scrollView.borderType = .noBorder
+        scrollView.focusRingType = .none
+        scrollView.contentView.drawsBackground = false
+        scrollView.contentView.backgroundColor = .clear
+        scrollView.verticalScrollElasticity = .allowed
+        scrollView.horizontalScrollElasticity = .none
+    }
+
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+        private static let rowIdentifier = NSUserInterfaceItemIdentifier("trackRow")
+        private static let spacerIdentifier = NSUserInterfaceItemIdentifier("spacerCell")
+        private static let artworkCellIdentifier = NSUserInterfaceItemIdentifier("artworkCell")
+        private static let titleCellIdentifier = NSUserInterfaceItemIdentifier("titleCell")
+        private static let artistCellIdentifier = NSUserInterfaceItemIdentifier("artistCell")
+        private static let durationCellIdentifier = NSUserInterfaceItemIdentifier("durationCell")
+        private static let playingCellIdentifier = NSUserInterfaceItemIdentifier("playingCell")
+
+        var parent: LibraryTrackTableView
+        weak var tableView: NSTableView?
+        private var lastSnapshot: RenderSnapshot?
+
+        init(_ parent: LibraryTrackTableView) {
+            self.parent = parent
+        }
+
+        func numberOfRows(in tableView: NSTableView) -> Int {
+            parent.tracks.count + 2
+        }
+
+        func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+            if row == 0 {
+                return TrackListMetrics.tableTopPadding
+            }
+            if row == bottomSpacerRow {
+                return TrackListMetrics.bottomContentInset
+            }
+            return TrackListMetrics.tableRowHeight
+        }
+
+        func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+            let rowView = tableView.makeView(withIdentifier: Self.rowIdentifier, owner: self) as? LibraryTrackRowView
+                ?? LibraryTrackRowView()
+            rowView.identifier = Self.rowIdentifier
+            return rowView
+        }
+
+        func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+            trackIndex(forTableRow: row) != nil
+        }
+
+        func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+            guard let tableColumn,
+                  let column = LibraryTableColumn(identifier: tableColumn.identifier) else {
+                return nil
+            }
+
+            guard let trackIndex = trackIndex(forTableRow: row) else {
+                return tableView.makeView(withIdentifier: Self.spacerIdentifier, owner: self) ?? spacerView()
+            }
+            guard parent.tracks.indices.contains(trackIndex) else { return nil }
+
+            switch column {
+            case .cover:
+                let cell = tableView.makeView(withIdentifier: Self.artworkCellIdentifier, owner: self) as? LibraryArtworkCellView
+                    ?? LibraryArtworkCellView()
+                cell.identifier = Self.artworkCellIdentifier
+                configure(cell, trackIndex: trackIndex)
+                return cell
+            case .title:
+                let cell = tableView.makeView(withIdentifier: Self.titleCellIdentifier, owner: self) as? LibraryTextCellView
+                    ?? LibraryTextCellView()
+                cell.identifier = Self.titleCellIdentifier
+                configure(cell, column: .title, trackIndex: trackIndex)
+                return cell
+            case .artist:
+                let cell = tableView.makeView(withIdentifier: Self.artistCellIdentifier, owner: self) as? LibraryTextCellView
+                    ?? LibraryTextCellView()
+                cell.identifier = Self.artistCellIdentifier
+                configure(cell, column: .artist, trackIndex: trackIndex)
+                return cell
+            case .duration:
+                let cell = tableView.makeView(withIdentifier: Self.durationCellIdentifier, owner: self) as? LibraryTextCellView
+                    ?? LibraryTextCellView()
+                cell.identifier = Self.durationCellIdentifier
+                configure(cell, column: .duration, trackIndex: trackIndex)
+                return cell
+            case .playing:
+                let cell = tableView.makeView(withIdentifier: Self.playingCellIdentifier, owner: self) as? LibraryPlayingCellView
+                    ?? LibraryPlayingCellView()
+                cell.identifier = Self.playingCellIdentifier
+                configure(cell, trackIndex: trackIndex)
+                return cell
+            }
+        }
+
+        @objc func tableClicked(_ sender: NSTableView) {
+            let row = sender.clickedRow
+            guard let trackIndex = trackIndex(forTableRow: row),
+                  parent.tracks.indices.contains(trackIndex) else { return }
+            let track = parent.tracks[trackIndex]
+            NotificationCenter.default.post(name: .collapseZihuSearch, object: nil)
+            parent.selectedTrackID = track.id
+            sender.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            reloadVisibleCells()
+            lastSnapshot = currentSnapshot()
+            parent.play(track)
+        }
+
+        func syncIfNeeded() {
+            let snapshot = currentSnapshot()
+            guard snapshot != lastSnapshot else { return }
+            reloadAndSyncSelection()
+        }
+
+        func reloadAndSyncSelection() {
+            guard let tableView else { return }
+            if tableView.numberOfRows != parent.tracks.count + 2 {
+                tableView.reloadData()
+            } else {
+                reloadVisibleCells()
+            }
+
+            if let selectedTrackID = parent.selectedTrackID,
+               let trackIndex = parent.tracks.firstIndex(where: { $0.id == selectedTrackID }) {
+                tableView.selectRowIndexes(IndexSet(integer: trackIndex + 1), byExtendingSelection: false)
+            } else {
+                tableView.deselectAll(nil)
+            }
+            lastSnapshot = currentSnapshot()
+        }
+
+        private var bottomSpacerRow: Int {
+            parent.tracks.count + 1
+        }
+
+        private func trackIndex(forTableRow row: Int) -> Int? {
+            guard row > 0, row < bottomSpacerRow else { return nil }
+            return row - 1
+        }
+
+        private func spacerView() -> NSView {
+            let view = NSView(frame: .zero)
+            view.identifier = Self.spacerIdentifier
+            return view
+        }
+
+        private func reloadVisibleCells() {
+            guard let tableView else { return }
+            for row in 0..<tableView.numberOfRows {
+                guard let trackIndex = trackIndex(forTableRow: row) else { continue }
+
+                for columnIndex in 0..<tableView.numberOfColumns {
+                    guard let column = LibraryTableColumn(identifier: tableView.tableColumns[columnIndex].identifier) else {
+                        continue
                     }
-                    .padding(.horizontal, TrackListMetrics.rowHorizontalPadding)
-                    .padding(.bottom, 12)
-                    .transaction { transaction in
-                        transaction.animation = nil
-                    }
+
+                    let view = tableView.view(atColumn: columnIndex, row: row, makeIfNecessary: false)
+                    configure(view, column: column, trackIndex: trackIndex)
                 }
             }
         }
-    }
-}
 
-private struct LibraryHeader: View {
-    @Binding var searchText: String
-    @Binding var artistColumnWidth: Double
-    @Binding var durationColumnWidth: Double
-    @State private var artistDragStart: Double?
-    @State private var durationDragStart: Double?
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ZStack(alignment: .leading) {
-                Text("歌曲")
-                    .frame(maxWidth: .infinity, alignment: .center)
-                HeaderSearchBox(text: $searchText)
-                    .padding(.leading, 6)
+        private func configure(_ view: NSView?, column: LibraryTableColumn, trackIndex: Int) {
+            switch (view, column) {
+            case let (cell as LibraryArtworkCellView, .cover):
+                configure(cell, trackIndex: trackIndex)
+            case let (cell as LibraryTextCellView, .title):
+                configure(cell, column: .title, trackIndex: trackIndex)
+            case let (cell as LibraryTextCellView, .artist):
+                configure(cell, column: .artist, trackIndex: trackIndex)
+            case let (cell as LibraryTextCellView, .duration):
+                configure(cell, column: .duration, trackIndex: trackIndex)
+            case let (cell as LibraryPlayingCellView, .playing):
+                configure(cell, trackIndex: trackIndex)
+            default:
+                break
             }
-            ResizableHeaderSeparator()
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            if artistDragStart == nil { artistDragStart = artistColumnWidth }
-                            let next = (artistDragStart ?? artistColumnWidth) - value.translation.width
-                            artistColumnWidth = clamped(next, min: TrackListMetrics.minArtistWidth, max: TrackListMetrics.maxArtistWidth)
-                        }
-                        .onEnded { _ in artistDragStart = nil }
-                )
-            Text("歌手")
-                .frame(width: CGFloat(artistColumnWidth), alignment: .center)
-            ResizableHeaderSeparator()
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            if durationDragStart == nil { durationDragStart = durationColumnWidth }
-                            let next = (durationDragStart ?? durationColumnWidth) - value.translation.width
-                            durationColumnWidth = clamped(next, min: TrackListMetrics.minDurationWidth, max: TrackListMetrics.maxDurationWidth)
-                        }
-                        .onEnded { _ in durationDragStart = nil }
-                )
-            Text("时长")
-                .frame(width: CGFloat(durationColumnWidth), alignment: .center)
         }
-        .frame(height: 52)
-        .font(.system(size: 14, weight: .heavy))
-        .foregroundStyle(AppColors.secondaryText)
-    }
 
-    private func clamped(_ value: Double, min minimum: CGFloat, max maximum: CGFloat) -> Double {
-        Swift.min(Swift.max(value, Double(minimum)), Double(maximum))
+        private func configure(_ cell: LibraryArtworkCellView, trackIndex: Int) {
+            let track = parent.tracks[trackIndex]
+            cell.configure(artworkURL: parent.artworkURL(track))
+        }
+
+        private func configure(_ cell: LibraryTextCellView, column: LibraryTableColumn, trackIndex: Int) {
+            let track = parent.tracks[trackIndex]
+            let isSelected = parent.selectedTrackID == track.id
+
+            switch column {
+            case .title:
+                cell.configure(
+                    text: track.displayTitle,
+                    font: .systemFont(ofSize: 14, weight: .medium),
+                    color: isSelected ? AppNSColors.accent : AppNSColors.primaryText,
+                    alignment: .left
+                )
+            case .artist:
+                cell.configure(
+                    text: track.displayArtist,
+                    font: .systemFont(ofSize: 13, weight: .medium),
+                    color: AppNSColors.secondaryText,
+                    alignment: .left
+                )
+            case .duration:
+                cell.configure(
+                    text: DisplayFormatters.time(track.duration),
+                    font: .monospacedDigitSystemFont(ofSize: 13, weight: .medium),
+                    color: isSelected ? AppNSColors.accent : AppNSColors.tertiaryText,
+                    alignment: .right
+                )
+            case .cover, .playing:
+                break
+            }
+        }
+
+        private func configure(_ cell: LibraryPlayingCellView, trackIndex: Int) {
+            let track = parent.tracks[trackIndex]
+            cell.configure(isPlaying: parent.playingTrackID == track.id && parent.isPlaying)
+        }
+
+        func resizeColumns() {
+            guard tableView != nil else { return }
+            setColumn(.cover, width: TrackListMetrics.coverColumnWidth)
+            setColumn(.title, width: TrackListMetrics.titleColumnWidth)
+            setColumn(.artist, width: TrackListMetrics.artistColumnWidth)
+            setColumn(.duration, width: TrackListMetrics.durationColumnWidth)
+            setColumn(.playing, width: TrackListMetrics.playingColumnWidth)
+        }
+
+        private func setColumn(_ tableColumn: LibraryTableColumn, width: CGFloat) {
+            guard let column = tableView?.tableColumn(withIdentifier: tableColumn.identifier) else { return }
+            let adjustedWidth = max(1, width)
+            column.maxWidth = .greatestFiniteMagnitude
+            column.minWidth = 0
+            column.width = adjustedWidth
+            column.minWidth = adjustedWidth
+            column.maxWidth = adjustedWidth
+        }
+
+        private func currentSnapshot() -> RenderSnapshot {
+            RenderSnapshot(
+                rows: parent.tracks.map { track in
+                    RenderSnapshot.Row(
+                        id: track.id,
+                        title: track.displayTitle,
+                        artist: track.displayArtist,
+                        duration: track.duration,
+                        artworkPath: parent.artworkURL(track)?.path
+                    )
+                },
+                selectedTrackID: parent.selectedTrackID,
+                playingTrackID: parent.playingTrackID,
+                isPlaying: parent.isPlaying
+            )
+        }
+
+        private struct RenderSnapshot: Equatable {
+            struct Row: Equatable {
+                let id: MusicTrack.ID
+                let title: String
+                let artist: String
+                let duration: TimeInterval
+                let artworkPath: String?
+            }
+
+            let rows: [Row]
+            let selectedTrackID: MusicTrack.ID?
+            let playingTrackID: MusicTrack.ID?
+            let isPlaying: Bool
+        }
     }
 }
 
-private struct ResizableHeaderSeparator: View {
+private final class LibraryTrackRowView: NSTableRowView {
+    override var isSelected: Bool {
+        didSet { needsDisplay = true }
+    }
+
+    override func drawBackground(in dirtyRect: NSRect) {
+        super.drawBackground(in: dirtyRect)
+        guard isSelected else { return }
+
+        AppNSColors.selectedRow.setFill()
+        let rect = bounds.insetBy(dx: 0, dy: 2)
+        NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
+    }
+
+    override func drawSelection(in dirtyRect: NSRect) {
+        drawBackground(in: dirtyRect)
+    }
+}
+
+private final class LibraryArtworkCellView: NSTableCellView {
+    private let artworkView = NSImageView()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        artworkView.image = nil
+    }
+
+    func configure(artworkURL: URL?) {
+        artworkView.image = SidebarArtworkCache.image(for: artworkURL)
+    }
+
+    private func setup() {
+        artworkView.translatesAutoresizingMaskIntoConstraints = false
+        artworkView.imageScaling = .scaleAxesIndependently
+        artworkView.wantsLayer = true
+        artworkView.layer?.cornerRadius = 6
+        artworkView.layer?.masksToBounds = true
+        artworkView.layer?.backgroundColor = AppNSColors.placeholderFill.cgColor
+
+        addSubview(artworkView)
+
+        NSLayoutConstraint.activate([
+            artworkView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            artworkView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            artworkView.widthAnchor.constraint(equalToConstant: TrackListMetrics.artworkSize),
+            artworkView.heightAnchor.constraint(equalToConstant: TrackListMetrics.artworkSize)
+        ])
+    }
+}
+
+private final class LibraryTextCellView: NSTableCellView {
+    private let label = NSTextField(labelWithString: "")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    func configure(text: String, font: NSFont, color: NSColor, alignment: NSTextAlignment) {
+        label.stringValue = text
+        label.font = font
+        label.textColor = color
+        label.alignment = alignment
+    }
+
+    private func setup() {
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.isBordered = false
+        label.drawsBackground = false
+        label.maximumNumberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        addSubview(label)
+
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: TrackListMetrics.columnTextInset),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -TrackListMetrics.columnTextInset),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+    }
+}
+
+private final class LibraryPlayingCellView: NSTableCellView {
+    private let playingIndicator = PlayingIndicatorView()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        playingIndicator.setAnimating(false)
+    }
+
+    func configure(isPlaying: Bool) {
+        playingIndicator.setAnimating(isPlaying)
+        playingIndicator.updateColor()
+    }
+
+    private func setup() {
+        playingIndicator.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(playingIndicator)
+
+        NSLayoutConstraint.activate([
+            playingIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
+            playingIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
+            playingIndicator.widthAnchor.constraint(equalToConstant: 18),
+            playingIndicator.heightAnchor.constraint(equalToConstant: 18)
+        ])
+    }
+}
+
+private final class PlayingIndicatorView: NSView {
+    private let bars = [CALayer(), CALayer(), CALayer()]
+    private var animating = false
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    override func layout() {
+        super.layout()
+        let barWidth: CGFloat = 3
+        let gap: CGFloat = 3
+        let height: CGFloat = min(16, bounds.height)
+        let totalWidth = CGFloat(bars.count) * barWidth + CGFloat(bars.count - 1) * gap
+        let startX = (bounds.width - totalWidth) / 2
+        let startY = (bounds.height - height) / 2
+
+        for (index, bar) in bars.enumerated() {
+            bar.frame = CGRect(
+                x: startX + CGFloat(index) * (barWidth + gap),
+                y: startY,
+                width: barWidth,
+                height: height
+            )
+        }
+    }
+
+    func setAnimating(_ active: Bool) {
+        guard active != animating else { return }
+        animating = active
+        isHidden = !active
+        active ? startAnimation() : stopAnimation()
+    }
+
+    func updateColor() {
+        bars.forEach { $0.backgroundColor = AppNSColors.accent.cgColor }
+    }
+
+    private func setup() {
+        wantsLayer = true
+        isHidden = true
+        bars.forEach { bar in
+            bar.backgroundColor = AppNSColors.accent.cgColor
+            bar.cornerRadius = 1.5
+            bar.anchorPoint = CGPoint(x: 0.5, y: 0)
+            layer?.addSublayer(bar)
+        }
+    }
+
+    private func startAnimation() {
+        updateColor()
+        for (index, bar) in bars.enumerated() {
+            bar.removeAllAnimations()
+            let animation = CABasicAnimation(keyPath: "transform.scale.y")
+            animation.fromValue = [0.35, 0.70, 0.48][index]
+            animation.toValue = [1.0, 0.42, 0.92][index]
+            animation.duration = [0.48, 0.42, 0.54][index]
+            animation.autoreverses = true
+            animation.repeatCount = .infinity
+            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            animation.beginTime = CACurrentMediaTime() + Double(index) * 0.10
+            bar.add(animation, forKey: "playing")
+        }
+    }
+
+    private func stopAnimation() {
+        bars.forEach { bar in
+            bar.removeAllAnimations()
+            bar.transform = CATransform3DIdentity
+        }
+    }
+}
+
+private enum SidebarArtworkCache {
+    static let shared = NSCache<NSString, NSImage>()
+
+    static func image(for url: URL?) -> NSImage? {
+        guard let url else { return nil }
+        let key = url.path as NSString
+        if let cached = shared.object(forKey: key) {
+            return cached
+        }
+
+        let image = thumbnail(from: url) ?? NSImage(contentsOf: url)
+        if let image {
+            shared.setObject(image, forKey: key)
+        }
+        return image
+    }
+
+    private static func thumbnail(from url: URL) -> NSImage? {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions) else {
+            return nil
+        }
+
+        let options = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: 88
+        ] as CFDictionary
+
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else {
+            return nil
+        }
+        return NSImage(cgImage: image, size: NSSize(width: 44, height: 44))
+    }
+}
+
+private struct UnifiedAppChrome: View {
+    @Binding var isSidebarVisible: Bool
+    @Binding var searchText: String
+
     var body: some View {
-        ZStack {
-            Color.clear
-            Rectangle()
-                .fill(AppColors.separator)
-                .frame(width: 1, height: 24)
+        HStack(spacing: 16) {
+            HStack(spacing: 10) {
+                WindowDotButton(color: Color(red: 1.00, green: 0.34, blue: 0.31)) {
+                    NSApp.keyWindow?.performClose(nil)
+                }
+
+                WindowDotButton(color: Color(red: 1.00, green: 0.77, blue: 0.20)) {
+                    NSApp.keyWindow?.miniaturize(nil)
+                }
+
+                WindowDotButton(color: Color(red: 0.18, green: 0.78, blue: 0.27)) {
+                    NSApp.keyWindow?.zoom(nil)
+                }
+            }
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    isSidebarVisible.toggle()
+                }
+            } label: {
+                Image(systemName: isSidebarVisible ? "sidebar.leading" : "sidebar.left")
+                    .font(.system(size: 18, weight: .regular))
+                    .frame(width: 38, height: 38)
+            }
+            .buttonStyle(.plain)
+            .help(isSidebarVisible ? "隐藏边栏" : "显示边栏")
+
+            if isSidebarVisible {
+                HoverSearchBar(text: $searchText)
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .leading)))
+            }
         }
-        .frame(width: 14, height: 42)
-        .contentShape(Rectangle())
-        .help("拖动调整列宽")
+        .padding(.horizontal, 13)
+        .frame(width: isSidebarVisible ? 410 : 152, height: 46, alignment: .leading)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay {
+            Capsule()
+                .stroke(AppColors.searchStroke.opacity(0.75), lineWidth: 1)
+        }
+        .shadow(color: AppColors.shadow.opacity(0.45), radius: 16, y: 7)
+        .animation(.easeInOut(duration: 0.18), value: isSidebarVisible)
     }
 }
 
-private struct HeaderSearchBox: View {
+private struct WindowDotButton: View {
+    let color: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Circle()
+                .fill(color)
+                .overlay {
+                    Circle()
+                        .stroke(Color.black.opacity(0.16), lineWidth: 0.8)
+                }
+                .frame(width: 13, height: 13)
+        }
+        .buttonStyle(.plain)
+        .frame(width: 16, height: 18)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct HoverSearchBar: View {
     @Binding var text: String
     @FocusState private var focused: Bool
     @State private var hovering = false
@@ -421,116 +1062,70 @@ private struct HeaderSearchBox: View {
     }
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            Button {
-                focused = true
-            } label: {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(AppColors.secondaryText)
-                    .frame(width: 38, height: 38)
-            }
-            .buttonStyle(.plain)
-            .contentShape(Rectangle().inset(by: -6))
+        HStack(spacing: expanded ? 8 : 0) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 18, weight: .regular))
+                .foregroundStyle(.secondary)
 
             if expanded {
-                HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(AppColors.secondaryText)
-
-                    TextField("搜索歌曲、歌手或专辑", text: $text)
-                        .textFieldStyle(.plain)
-                        .focused($focused)
-                        .font(.system(size: 15, weight: .medium))
-                }
-                .padding(.horizontal, 14)
-                .frame(width: 232, height: 40)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .stroke(AppColors.searchStroke, lineWidth: 1)
-                )
-                .shadow(color: AppColors.shadow, radius: 14, y: 8)
-                .transition(.opacity)
-                .zIndex(4)
+                TextField("搜索歌曲、歌手或专辑", text: $text)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 15, weight: .medium))
+                    .focused($focused)
+                    .frame(width: 220)
+                    .transition(.opacity)
             }
         }
-        .frame(width: 38, height: 38, alignment: .leading)
-        .contentShape(Rectangle().inset(by: -6))
-        .onHover { hovering = $0 }
-        .onTapGesture { focused = true }
-        .onReceive(NotificationCenter.default.publisher(for: .collapseZihuSearch)) { _ in
-            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        .padding(.horizontal, expanded ? 10 : 0)
+        .frame(width: expanded ? 270 : 38, height: 38, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            hovering = true
+            focused = true
+        }
+        .onHover { inside in
+            hovering = inside
+            if inside {
+                focused = true
+            } else if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 focused = false
             }
         }
-        .animation(.easeInOut(duration: 0.18), value: expanded)
+        .onChange(of: expanded) { _, isExpanded in
+            guard isExpanded else { return }
+            DispatchQueue.main.async {
+                focused = true
+            }
+        }
+        .animation(.easeInOut(duration: 0.16), value: expanded)
     }
 }
 
-private struct LibraryRow: View {
-    let track: MusicTrack
-    let isSelected: Bool
-    let isPlaying: Bool
-    let artworkURL: URL?
-    let artistColumnWidth: CGFloat
-    let durationColumnWidth: CGFloat
-    var play: () -> Void
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ArtworkView(url: artworkURL, size: 44)
-                .frame(width: TrackListMetrics.artworkColumnWidth, alignment: .leading)
-
-            Text(track.displayTitle)
-                .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
-                .foregroundStyle(isSelected ? AppColors.accentStrong : AppColors.primaryText)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Text(track.displayArtist)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(AppColors.secondaryText)
-                .lineLimit(1)
-                .frame(width: artistColumnWidth, alignment: .leading)
-
-            HStack(spacing: 7) {
-                    Text(DisplayFormatters.time(track.duration))
-                        .font(.system(size: 13, weight: .medium).monospacedDigit())
-                    .foregroundStyle(isSelected ? AppColors.accent : AppColors.tertiaryText)
-                if isPlaying {
-                    EqualizerGlyph()
-                        .frame(width: 15, height: 16)
-                }
-            }
-            .frame(width: durationColumnWidth, alignment: .trailing)
+private struct WindowStandardButtonHider: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            hideButtons(in: view.window)
         }
-        .padding(.horizontal, 10)
-        .frame(maxWidth: .infinity)
-        .frame(height: 58)
-        .background {
-            if isSelected {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(AppColors.selectedRow)
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            NotificationCenter.default.post(name: .collapseZihuSearch, object: nil)
-            play()
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            hideButtons(in: nsView.window)
         }
     }
-}
 
-private struct EqualizerGlyph: View {
-    var body: some View {
-        HStack(alignment: .bottom, spacing: 2) {
-            Capsule().frame(width: 3, height: 9)
-            Capsule().frame(width: 3, height: 15)
-            Capsule().frame(width: 3, height: 12)
-        }
-        .foregroundStyle(AppColors.accent)
+    private func hideButtons(in window: NSWindow?) {
+        guard let window else { return }
+        window.styleMask.insert(.fullSizeContentView)
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.toolbar = nil
+        window.isMovableByWindowBackground = false
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
     }
 }
 
@@ -560,33 +1155,57 @@ private struct PlaybackPane: View {
 
 private struct SongHeroPane: View {
     @EnvironmentObject private var library: MusicLibraryStore
+    @EnvironmentObject private var player: AudioPlayerService
     let track: MusicTrack?
+    @State private var editingField: HeroEditField?
+    @State private var draftTitle = ""
+    @State private var draftArtist = ""
+    @State private var draftAlbum = ""
+    @FocusState private var focusedField: HeroEditField?
 
     var body: some View {
         VStack(spacing: 0) {
-            Spacer(minLength: 44)
+            Spacer(minLength: 0)
 
             ArtworkView(url: track.flatMap { library.artworkURL(for: $0) }, size: 276)
                 .shadow(color: AppColors.shadow, radius: 22, y: 16)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) {
+                    guard let track, let updated = library.chooseArtwork(for: track) else { return }
+                    updatePlayerTrack(updated)
+                    Task { await library.writeTags(for: updated) }
+                }
+                .help("双击更换封面")
 
             VStack(spacing: 9) {
-                Text(track?.displayTitle ?? "未播放")
-                    .font(.system(size: 33, weight: .heavy))
-                    .foregroundStyle(AppColors.primaryText)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.75)
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 30)
+                editableText(
+                    field: .title,
+                    text: track?.displayTitle ?? "未播放",
+                    draft: $draftTitle,
+                    font: .system(size: 33, weight: .heavy),
+                    color: AppColors.primaryText,
+                    lineLimit: 2
+                )
+                .padding(.top, 30)
 
-                Text(track?.displayArtist ?? "选择左侧歌曲")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(AppColors.secondaryText)
-                    .lineLimit(1)
+                editableText(
+                    field: .artist,
+                    text: track?.displayArtist ?? "选择左侧歌曲",
+                    draft: $draftArtist,
+                    font: .system(size: 18, weight: .medium),
+                    color: AppColors.secondaryText,
+                    lineLimit: 1
+                )
 
-                Text("专辑：\(track?.displayAlbum ?? "-")")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(AppColors.tertiaryText)
-                    .lineLimit(1)
+                editableText(
+                    field: .album,
+                    text: "专辑：\(track?.displayAlbum ?? "-")",
+                    draft: $draftAlbum,
+                    font: .system(size: 15, weight: .medium),
+                    color: AppColors.tertiaryText,
+                    lineLimit: 1,
+                    displayPrefix: "专辑："
+                )
 
                 if let track {
                     Text(DisplayFormatters.technicalSummary(for: track))
@@ -597,10 +1216,97 @@ private struct SongHeroPane: View {
                 }
             }
 
-            Spacer(minLength: 54)
+            Spacer(minLength: 90)
         }
+        .offset(y: -40)
         .padding(.horizontal, 30)
+        .onAppear { syncDrafts(from: track) }
+        .onChange(of: track?.id) { _, _ in syncDrafts(from: track) }
+        .onChange(of: editingField) { _, field in focusedField = field }
     }
+
+    @ViewBuilder
+    private func editableText(
+        field: HeroEditField,
+        text: String,
+        draft: Binding<String>,
+        font: Font,
+        color: Color,
+        lineLimit: Int,
+        displayPrefix: String = ""
+    ) -> some View {
+        if editingField == field {
+            TextField("", text: draft)
+                .textFieldStyle(.plain)
+                .font(font)
+                .foregroundStyle(color)
+                .multilineTextAlignment(.center)
+                .lineLimit(1)
+                .focused($focusedField, equals: field)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(AppColors.controlFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .onSubmit { saveDraft() }
+                .onExitCommand { cancelEditing() }
+        } else {
+            Text(text)
+                .font(font)
+                .foregroundStyle(color)
+                .lineLimit(lineLimit)
+                .minimumScaleFactor(0.75)
+                .multilineTextAlignment(.center)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) {
+                    guard track != nil else { return }
+                    if field == .album, draft.wrappedValue.hasPrefix(displayPrefix) {
+                        draft.wrappedValue.removeFirst(displayPrefix.count)
+                    }
+                    editingField = field
+                }
+                .help("双击编辑，回车保存")
+        }
+    }
+
+    private func syncDrafts(from track: MusicTrack?) {
+        draftTitle = track?.title ?? ""
+        draftArtist = track?.displayArtist ?? ""
+        draftAlbum = track?.album ?? ""
+        editingField = nil
+    }
+
+    private func saveDraft() {
+        guard var updated = track else { return }
+        updated.title = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.artist = normalizedArtistInput(draftArtist)
+        updated.album = draftAlbum.trimmingCharacters(in: .whitespacesAndNewlines)
+        library.updateTrack(updated)
+        updatePlayerTrack(updated)
+        editingField = nil
+        Task { await library.writeTags(for: updated) }
+    }
+
+    private func cancelEditing() {
+        syncDrafts(from: track)
+    }
+
+    private func updatePlayerTrack(_ updated: MusicTrack) {
+        if player.currentTrack?.id == updated.id {
+            player.currentTrack = updated
+        }
+    }
+
+    private func normalizedArtistInput(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"[;；/／,，|]+"#, with: "、", options: .regularExpression)
+            .replacingOccurrences(of: #"、+"#, with: "、", options: .regularExpression)
+    }
+}
+
+private enum HeroEditField: Hashable {
+    case title
+    case artist
+    case album
 }
 
 private struct LyricsSidePane: View {
@@ -608,7 +1314,6 @@ private struct LyricsSidePane: View {
 
     var body: some View {
         SmoothLyricsPane(track: track)
-            .padding(.top, 24)
     }
 }
 
@@ -620,7 +1325,7 @@ private struct SmoothLyricsPane: View {
 
     private let service = LyricsService()
     private let rowHeight: CGFloat = 86
-    private let lyricLead: TimeInterval = 0.15
+    private let lyricLead: TimeInterval = 0.4
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: false)) { _ in
@@ -635,7 +1340,7 @@ private struct SmoothLyricsPane: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         let activeIndex = currentIndex(for: time)
-                        let range = visibleRange(around: activeIndex)
+                        let range = visibleRange(around: activeIndex, height: geometry.size.height)
 
                         VStack(spacing: 0) {
                             ForEach(range, id: \.self) { index in
@@ -667,9 +1372,11 @@ private struct SmoothLyricsPane: View {
         service.currentIndex(in: lines, time: time) ?? 0
     }
 
-    private func visibleRange(around index: Int) -> Range<Int> {
-        let lower = max(0, index - 8)
-        let upper = min(lines.count, index + 10)
+    private func visibleRange(around index: Int, height: CGFloat) -> Range<Int> {
+        let visibleRows = Int(ceil(height / rowHeight))
+        let radius = max(10, visibleRows + 4)
+        let lower = max(0, index - radius)
+        let upper = min(lines.count, index + radius + 1)
         return lower..<upper
     }
 
@@ -772,7 +1479,7 @@ private struct PlayerDock: View {
                         in: 0...max(player.duration, 1)
                     )
                     .tint(AppColors.accent)
-                    .frame(width: 520)
+                    .frame(width: 440)
 
                     Text(DisplayFormatters.time(player.duration))
                         .frame(width: 46, alignment: .leading)
@@ -780,19 +1487,62 @@ private struct PlayerDock: View {
                 .font(.system(size: 12, weight: .medium).monospacedDigit())
                 .foregroundStyle(AppColors.tertiaryText)
             }
-            .frame(width: 640)
+            .frame(width: 560)
 
             Spacer(minLength: 0)
 
-            VStack(spacing: 8) {
+            HStack(spacing: 10) {
                 ModeCluster(selectedMode: $playbackMode)
                 VolumeControl()
             }
-            .frame(width: 260)
+            .frame(width: 206)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
-        .background(.ultraThinMaterial)
+        .background(
+            RoundedRectangle(cornerRadius: TrackListMetrics.bottomGlassCornerRadius, style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+        .background(
+            RoundedRectangle(cornerRadius: TrackListMetrics.bottomGlassCornerRadius, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.20),
+                            AppColors.accent.opacity(0.06),
+                            Color.white.opacity(0.05)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: TrackListMetrics.bottomGlassCornerRadius, style: .continuous)
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.58),
+                            AppColors.searchStroke.opacity(0.52),
+                            Color.white.opacity(0.18)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+        }
+        .overlay(alignment: .top) {
+            RoundedRectangle(cornerRadius: TrackListMetrics.bottomGlassCornerRadius, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 8)
+                .blur(radius: 8)
+                .offset(y: -7)
+                .mask(
+                    RoundedRectangle(cornerRadius: TrackListMetrics.bottomGlassCornerRadius, style: .continuous)
+                )
+        }
+        .shadow(color: AppColors.shadow.opacity(0.75), radius: 30, y: 16)
+        .shadow(color: AppColors.accent.opacity(0.10), radius: 20, y: 4)
     }
 }
 
@@ -817,25 +1567,142 @@ private struct ModeCluster: View {
     @Binding var selectedMode: PlaybackMode
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             ForEach(PlaybackMode.allCases) { mode in
                 ModeButton(mode: mode, selectedMode: $selectedMode)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .center)
     }
 }
 
 private struct VolumeControl: View {
     @EnvironmentObject private var player: AudioPlayerService
+    @State private var hovering = false
+    @State private var collapseWorkItem: DispatchWorkItem?
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "speaker.wave.2.fill")
+        Button {} label: {
+            Image(systemName: player.volume <= 0.01 ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                .font(.system(size: 18, weight: .bold))
+                .frame(width: 40, height: 40)
                 .foregroundStyle(AppColors.accent)
-            Slider(value: $player.volume, in: 0...1)
-                .tint(AppColors.accent)
+                .background(
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .fill(AppColors.controlFill)
+                )
         }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle().inset(by: -8))
+        .overlay(alignment: .top) {
+            if hovering {
+                VerticalVolumeSlider(value: $player.volume)
+                    .offset(y: -132)
+                    .transition(.identity)
+                    .onHover { inside in
+                        inside ? showSlider() : scheduleCollapse()
+                    }
+            }
+        }
+        .onHover { inside in
+            inside ? showSlider() : scheduleCollapse()
+        }
+        .help("音量")
+    }
+
+    private func showSlider() {
+        collapseWorkItem?.cancel()
+        hovering = true
+    }
+
+    private func scheduleCollapse() {
+        collapseWorkItem?.cancel()
+        let item = DispatchWorkItem {
+            hovering = false
+        }
+        collapseWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.28, execute: item)
+    }
+}
+
+private struct VerticalVolumeSlider: View {
+    @Binding var value: Double
+
+    var body: some View {
+        VolumeSliderBridge(value: $value)
+        .frame(width: 38, height: 118)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay {
+            Capsule()
+                .stroke(AppColors.searchStroke.opacity(0.65), lineWidth: 1)
+        }
+        .shadow(color: AppColors.shadow.opacity(0.75), radius: 14, y: 8)
+    }
+}
+
+private struct VolumeSliderBridge: NSViewRepresentable {
+    @Binding var value: Double
+
+    func makeNSView(context: Context) -> VolumeSliderView {
+        let view = VolumeSliderView()
+        view.onChange = { value = $0 }
+        view.value = value
+        return view
+    }
+
+    func updateNSView(_ nsView: VolumeSliderView, context: Context) {
+        nsView.onChange = { value = $0 }
+        nsView.value = value
+    }
+}
+
+private final class VolumeSliderView: NSView {
+    var onChange: ((Double) -> Void)?
+    var value: Double = 0.85 {
+        didSet {
+            value = min(max(value, 0), 1)
+            needsDisplay = true
+        }
+    }
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        updateValue(with: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        updateValue(with: event)
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let trackRect = NSRect(x: bounds.midX - 3.5, y: 13, width: 7, height: bounds.height - 26)
+        AppNSColors.placeholderFill.setFill()
+        NSBezierPath(roundedRect: trackRect, xRadius: 3.5, yRadius: 3.5).fill()
+
+        let fillHeight = max(8, trackRect.height * CGFloat(value))
+        let fillRect = NSRect(x: trackRect.minX, y: trackRect.minY, width: trackRect.width, height: fillHeight)
+        AppNSColors.accent.setFill()
+        NSBezierPath(roundedRect: fillRect, xRadius: 3.5, yRadius: 3.5).fill()
+
+        let knobRect = NSRect(x: bounds.midX - 9, y: trackRect.minY + fillHeight - 9, width: 18, height: 18)
+        NSColor.white.setFill()
+        NSBezierPath(ovalIn: knobRect).fill()
+    }
+
+    private func updateValue(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        let trackHeight = max(bounds.height - 26, 1)
+        let y = min(max(location.y - 13, 0), trackHeight)
+        let next = Double(y / trackHeight)
+        value = next
+        onChange?(next)
     }
 }
 
@@ -868,16 +1735,12 @@ private struct ModeButton: View {
         Button {
             selectedMode = mode
         } label: {
-            VStack(spacing: 3) {
-                Image(systemName: mode.systemImage)
-                    .font(.system(size: 18, weight: .bold))
-                Text(mode.shortTitle)
-                    .font(.system(size: 10, weight: .semibold))
-            }
-            .frame(width: 62, height: 42)
+            Image(systemName: mode.systemImage)
+                .font(.system(size: 18, weight: .bold))
+                .frame(width: 40, height: 40)
             .foregroundStyle(selectedMode == mode ? AppColors.accent : AppColors.mutedText)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
                     .fill(selectedMode == mode ? AppColors.accent.opacity(0.12) : AppColors.controlFill)
             )
         }

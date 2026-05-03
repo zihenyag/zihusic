@@ -2,6 +2,8 @@ import AppKit
 import Foundation
 import UniformTypeIdentifiers
 
+private let lastImportFolderDefaultsKey = "lastImportFolder"
+
 @MainActor
 final class MusicLibraryStore: ObservableObject {
     @Published var tracks: [MusicTrack] = []
@@ -9,7 +11,7 @@ final class MusicLibraryStore: ObservableObject {
     @Published var searchText = ""
     @Published var isImporting = false
     @Published var statusMessage = ""
-    @Published var lastImportFolder = AppDirectories.defaultMusicFolder.path
+    @Published var lastImportFolder = UserDefaults.standard.string(forKey: lastImportFolderDefaultsKey) ?? ""
 
     private let metadataService = MetadataService()
     private let metadataWriter = MetadataWriterService()
@@ -17,6 +19,9 @@ final class MusicLibraryStore: ObservableObject {
 
     init() {
         load()
+        Task {
+            await refreshCachedMetadataFromFiles()
+        }
     }
 
     var filteredTracks: [MusicTrack] {
@@ -46,6 +51,41 @@ final class MusicLibraryStore: ObservableObject {
         }
     }
 
+    private func refreshCachedMetadataFromFiles() async {
+        let cachedTracks = tracks
+        guard !cachedTracks.isEmpty else { return }
+
+        let refreshed = await Task.detached(priority: .utility) {
+            let service = MetadataService()
+            var result: [MusicTrack] = []
+            for track in cachedTracks where FileManager.default.fileExists(atPath: track.filePath) {
+                if let updated = await service.loadTrack(from: track.fileURL, existing: track, source: track.source) {
+                    result.append(updated)
+                }
+            }
+            return result
+        }.value
+
+        guard !refreshed.isEmpty else { return }
+
+        var changed = false
+        var byID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
+        for updated in refreshed {
+            guard let existing = byID[updated.id] else { continue }
+            if existing.artist != updated.artist
+                || existing.embeddedLyrics != updated.embeddedLyrics
+                || existing.title != updated.title
+                || existing.album != updated.album {
+                byID[updated.id] = updated
+                changed = true
+            }
+        }
+
+        guard changed else { return }
+        tracks = sortedTracks(from: Array(byID.values))
+        save()
+    }
+
     func save() {
         do {
             try AppDirectories.ensureCreated()
@@ -56,8 +96,8 @@ final class MusicLibraryStore: ObservableObject {
         }
     }
 
-    func importDefaultFolder() async {
-        await importFolder(AppDirectories.defaultMusicFolder)
+    var hasImportFolder: Bool {
+        !lastImportFolder.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     func chooseAndImportFolder() async {
@@ -66,9 +106,26 @@ final class MusicLibraryStore: ObservableObject {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.directoryURL = URL(fileURLWithPath: lastImportFolder, isDirectory: true)
+        if hasImportFolder {
+            panel.directoryURL = URL(fileURLWithPath: lastImportFolder, isDirectory: true)
+        }
 
         guard panel.runModal() == .OK, let folder = panel.url else { return }
+        await importFolder(folder)
+    }
+
+    func rescanLastImportFolder() async {
+        guard hasImportFolder else {
+            statusMessage = "请先选择音乐文件夹"
+            return
+        }
+
+        let folder = URL(fileURLWithPath: lastImportFolder, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: folder.path) else {
+            statusMessage = "找不到上次选择的文件夹：\(folder.path)"
+            return
+        }
+
         await importFolder(folder)
     }
 
@@ -76,6 +133,7 @@ final class MusicLibraryStore: ObservableObject {
         isImporting = true
         statusMessage = "正在扫描 \(folder.path)"
         lastImportFolder = folder.path
+        UserDefaults.standard.set(folder.path, forKey: lastImportFolderDefaultsKey)
 
         let existing = Dictionary(uniqueKeysWithValues: tracks.map { ($0.filePath, $0) })
         let urls = audioFiles(in: folder)
@@ -83,7 +141,13 @@ final class MusicLibraryStore: ObservableObject {
 
         let imported = await Task.detached(priority: .userInitiated) {
             let service = MetadataService()
-            return urls.compactMap { service.loadTrack(from: $0, existing: existing[$0.path], source: .local) }
+            var imported: [MusicTrack] = []
+            for url in urls {
+                if let track = await service.loadTrack(from: url, existing: existing[url.path], source: .local) {
+                    imported.append(track)
+                }
+            }
+            return imported
         }.value
 
         let removedCount = synchronize(imported, scannedPaths: scannedPaths, folder: folder)
@@ -97,7 +161,7 @@ final class MusicLibraryStore: ObservableObject {
 
     func importFile(_ file: URL, source: TrackSource = .downloaded) async {
         guard let track = await Task.detached(priority: .userInitiated, operation: {
-            MetadataService().loadTrack(from: file, existing: nil, source: source)
+            await MetadataService().loadTrack(from: file, existing: nil, source: source)
         }).value else { return }
 
         merge([track])
@@ -113,7 +177,8 @@ final class MusicLibraryStore: ObservableObject {
         save()
     }
 
-    func chooseArtwork(for track: MusicTrack) {
+    @discardableResult
+    func chooseArtwork(for track: MusicTrack) -> MusicTrack? {
         let panel = NSOpenPanel()
         panel.title = "选择封面"
         panel.allowedContentTypes = [.image]
@@ -121,7 +186,7 @@ final class MusicLibraryStore: ObservableObject {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
 
-        guard panel.runModal() == .OK, let source = panel.url else { return }
+        guard panel.runModal() == .OK, let source = panel.url else { return nil }
         do {
             try AppDirectories.ensureCreated()
             let ext = source.pathExtension.isEmpty ? "image" : source.pathExtension
@@ -133,8 +198,10 @@ final class MusicLibraryStore: ObservableObject {
             updated.artworkFileName = fileName
             updateTrack(updated)
             statusMessage = "封面已更新"
+            return updated
         } catch {
             statusMessage = "更新封面失败：\(error.localizedDescription)"
+            return nil
         }
     }
 
@@ -142,7 +209,13 @@ final class MusicLibraryStore: ObservableObject {
         do {
             try metadataWriter.write(track: track, artworkURL: artworkURL(for: track))
             statusMessage = "标签已写入音频文件"
-            await importFile(track.fileURL, source: track.source)
+            if let refreshed = await Task.detached(priority: .userInitiated, operation: {
+                await MetadataService().loadTrack(from: track.fileURL, existing: track, source: track.source)
+            }).value {
+                updateTrack(refreshed)
+            } else {
+                updateTrack(track)
+            }
         } catch {
             statusMessage = error.localizedDescription
         }

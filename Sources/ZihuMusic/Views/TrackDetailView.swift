@@ -26,7 +26,7 @@ struct TrackDetailView: View {
                     .frame(maxWidth: 980, alignment: .leading)
                 }
                 .onAppear { load(track) }
-                .onChange(of: track.id) { _ in load(track) }
+                .onChange(of: track.id) { _, _ in load(track) }
                 .navigationTitle(track.displayTitle)
             } else {
                 ContentUnavailableView("选择一首音乐", systemImage: "music.note", description: Text("从左侧资料库选择或导入本地文件夹。"))

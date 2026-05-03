@@ -31,7 +31,7 @@ struct LyricsView: View {
                     }
                     .frame(minHeight: 220, maxHeight: 320)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .onChange(of: current) { newValue in
+                    .onChange(of: current) { _, newValue in
                         guard let newValue else { return }
                         withAnimation(.easeInOut(duration: 0.2)) {
                             proxy.scrollTo(lines[newValue].id, anchor: .center)

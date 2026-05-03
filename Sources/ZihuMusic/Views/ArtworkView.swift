@@ -44,7 +44,7 @@ struct ArtworkView: View {
                 .stroke(.separator, lineWidth: 1)
         )
         .task(id: cacheKey) {
-            loadedImage = await ArtworkImageCache.image(for: url, size: size)
+            loadedImage = ArtworkImageCache.image(for: url, size: size)
         }
     }
 }
@@ -52,24 +52,18 @@ struct ArtworkView: View {
 private enum ArtworkImageCache {
     static let shared = NSCache<NSString, NSImage>()
 
-    static func image(for url: URL?, size: CGFloat) async -> NSImage? {
+    static func image(for url: URL?, size: CGFloat) -> NSImage? {
         guard let url else { return nil }
         let key = "\(url.path)#\(Int(size.rounded()))" as NSString
         if let cached = ArtworkImageCache.shared.object(forKey: key) {
             return cached
         }
 
-        return await Task.detached(priority: .utility) {
-            if let cached = ArtworkImageCache.shared.object(forKey: key) {
-                return cached
-            }
-
-            let image = thumbnail(from: url, size: size) ?? NSImage(contentsOf: url)
-            if let image {
-                ArtworkImageCache.shared.setObject(image, forKey: key)
-            }
-            return image
-        }.value
+        let image = thumbnail(from: url, size: size) ?? NSImage(contentsOf: url)
+        if let image {
+            ArtworkImageCache.shared.setObject(image, forKey: key)
+        }
+        return image
     }
 
     private static func thumbnail(from url: URL, size: CGFloat) -> NSImage? {

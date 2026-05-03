@@ -7,7 +7,7 @@ struct MetadataService {
         "flac", "mp3", "m4a", "aac", "wav", "aiff", "aif", "caf", "alac"
     ]
 
-    func loadTrack(from url: URL, existing: MusicTrack? = nil, source: TrackSource = .local) -> MusicTrack? {
+    func loadTrack(from url: URL, existing: MusicTrack? = nil, source: TrackSource = .local) async -> MusicTrack? {
         guard Self.supportedExtensions.contains(url.pathExtension.lowercased()) else {
             return nil
         }
@@ -41,10 +41,10 @@ struct MetadataService {
             bitDepth = flacMetadata.bitDepth ?? bitDepth
             channelCount = flacMetadata.channelCount ?? channelCount
             artworkFileName = artworkFileName ?? flacMetadata.artworkFileName
-            embeddedLyrics = embeddedLyrics ?? flacMetadata.lyrics
+            embeddedLyrics = preferredLongText(current: embeddedLyrics, candidate: flacMetadata.lyrics)
         }
 
-        let avMetadata = readAVMetadata(from: url, id: id)
+        let avMetadata = await readAVMetadata(from: url, id: id)
         title = existingTitle ?? usableMetadata(avMetadata.title) ?? title
         artist = preferredArtist(current: artist, candidate: avMetadata.artist)
         album = existingAlbum ?? usableMetadata(avMetadata.album) ?? album
@@ -95,13 +95,13 @@ struct MetadataService {
         var lyrics: String?
     }
 
-    private func readAVMetadata(from url: URL, id: UUID) -> MetadataSnapshot {
+    private func readAVMetadata(from url: URL, id: UUID) async -> MetadataSnapshot {
         let asset = AVURLAsset(url: url)
-        var snapshot = MetadataSnapshot(duration: CMTimeGetSeconds(asset.duration))
+        let duration = (try? await asset.load(.duration)) ?? .zero
+        var snapshot = MetadataSnapshot(duration: CMTimeGetSeconds(duration))
 
-        if let audioTrack = asset.tracks(withMediaType: .audio).first,
-           let rawDescription = audioTrack.formatDescriptions.first {
-            let description = rawDescription as! CMAudioFormatDescription
+        if let audioTrack = (try? await asset.loadTracks(withMediaType: .audio))?.first,
+           let description = (try? await audioTrack.load(.formatDescriptions))?.first {
             if let streamDescription = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee {
                 if streamDescription.mSampleRate > 0 {
                     snapshot.sampleRate = Int(streamDescription.mSampleRate)
@@ -116,18 +116,19 @@ struct MetadataService {
         }
 
         var artistValues: [String] = []
-        for item in asset.commonMetadata {
+        let commonMetadata = (try? await asset.load(.commonMetadata)) ?? []
+        for item in commonMetadata {
             switch item.commonKey?.rawValue {
             case "title":
-                snapshot.title = item.stringValue
+                snapshot.title = try? await item.load(.stringValue)
             case "artist":
-                if let value = item.stringValue {
+                if let value = try? await item.load(.stringValue) {
                     artistValues.append(value)
                 }
             case "albumName":
-                snapshot.album = item.stringValue
+                snapshot.album = try? await item.load(.stringValue)
             case "artwork":
-                if let data = item.dataValue ?? item.value as? Data {
+                if let data = try? await item.load(.dataValue) {
                     snapshot.artworkFileName = writeArtwork(data: data, id: id, preferredExtension: "artwork")
                 }
             default:
@@ -149,21 +150,18 @@ struct MetadataService {
         var albumArtistValues: [String] = []
 
         if let tags = try? ProcessRunner.run(metaflac, arguments: ["--export-tags-to=-", url.path]).stdout {
-            for line in tags.components(separatedBy: .newlines) {
-                guard let equals = line.firstIndex(of: "=") else { continue }
-                let key = String(line[..<equals]).uppercased()
-                let value = String(line[line.index(after: equals)...])
-                switch key {
+            for tag in parseTags(tags) {
+                switch tag.key {
                 case "TITLE":
-                    snapshot.title = value
+                    snapshot.title = tag.value
                 case "ARTIST":
-                    artistValues.append(value)
+                    artistValues.append(tag.value)
                 case "ALBUMARTIST":
-                    albumArtistValues.append(value)
+                    albumArtistValues.append(tag.value)
                 case "ALBUM":
-                    snapshot.album = value
+                    snapshot.album = tag.value
                 case "LYRICS", "UNSYNCEDLYRICS", "LYRIC":
-                    if snapshot.lyrics == nil { snapshot.lyrics = value }
+                    if snapshot.lyrics == nil { snapshot.lyrics = tag.value }
                 default:
                     break
                 }
@@ -214,19 +212,16 @@ struct MetadataService {
 
         var snapshot = MetadataSnapshot()
         var artistValues: [String] = []
-        for line in output.components(separatedBy: .newlines) {
-            guard line.hasPrefix("TAG:"), let equals = line.firstIndex(of: "=") else { continue }
-            let key = String(line[line.index(line.startIndex, offsetBy: 4)..<equals]).uppercased()
-            let value = String(line[line.index(after: equals)...])
-            switch key {
+        for tag in parseTags(output, prefix: "TAG:") {
+            switch tag.key {
             case "TITLE":
-                snapshot.title = value
+                snapshot.title = tag.value
             case "ARTIST", "ALBUM_ARTIST", "ALBUMARTIST":
-                artistValues.append(value)
+                artistValues.append(tag.value)
             case "ALBUM":
-                snapshot.album = value
+                snapshot.album = tag.value
             case "LYRICS", "UNSYNCEDLYRICS", "LYRIC":
-                if snapshot.lyrics == nil { snapshot.lyrics = value }
+                if snapshot.lyrics == nil { snapshot.lyrics = tag.value }
             default:
                 break
             }
@@ -244,8 +239,12 @@ struct MetadataService {
 
         let currentTokens = artistTokens(in: currentValue)
         let candidateTokens = artistTokens(in: candidateValue)
-        if candidateTokens.count > currentTokens.count,
-           currentTokens.isEmpty || currentTokens.isSubset(of: candidateTokens) {
+        if candidateLooksMoreComplete(
+            currentValue: currentValue,
+            candidateValue: candidateValue,
+            currentTokens: currentTokens,
+            candidateTokens: candidateTokens
+        ) {
             return candidateValue
         }
         return currentValue
@@ -265,6 +264,12 @@ struct MetadataService {
         return onlyQuestionMarks ? nil : withoutQuestionSuffix
     }
 
+    private func preferredLongText(current: String?, candidate: String?) -> String? {
+        guard let candidate = usableMetadata(candidate) else { return current }
+        guard let current = usableMetadata(current) else { return candidate }
+        return candidate.count > current.count ? candidate : current
+    }
+
     private func combinedArtistValues(_ values: [String]) -> String? {
         let joined = values
             .flatMap { artistTokensForDisplay(in: $0) }
@@ -273,12 +278,71 @@ struct MetadataService {
                     result.append(value)
                 }
             }
-            .joined(separator: ";")
+            .joined(separator: "、")
         return joined.isEmpty ? nil : joined
+    }
+
+    private func parseTags(_ output: String, prefix: String? = nil) -> [(key: String, value: String)] {
+        var tags: [(key: String, value: String)] = []
+        var currentKey: String?
+        var currentValue = ""
+
+        func flush() {
+            guard let currentKey else { return }
+            tags.append((currentKey, currentValue.trimmingCharacters(in: .whitespacesAndNewlines)))
+        }
+
+        for rawLine in output.components(separatedBy: .newlines) {
+            let line: String
+            if let prefix {
+                guard rawLine.hasPrefix(prefix) else {
+                    if currentKey != nil {
+                        currentValue += "\n\(rawLine)"
+                    }
+                    continue
+                }
+                line = String(rawLine.dropFirst(prefix.count))
+            } else {
+                line = rawLine
+            }
+
+            if let equals = line.firstIndex(of: "=") {
+                flush()
+                currentKey = String(line[..<equals]).uppercased()
+                currentValue = String(line[line.index(after: equals)...])
+            } else if currentKey != nil {
+                currentValue += "\n\(rawLine)"
+            }
+        }
+
+        flush()
+        return tags.filter { !$0.value.isEmpty }
     }
 
     private func artistTokens(in value: String) -> Set<String> {
         Set(artistTokensForDisplay(in: value).map { $0.lowercased() })
+    }
+
+    private func artistTokens(_ currentTokens: Set<String>, areRepresentedIn candidateTokens: Set<String>) -> Bool {
+        currentTokens.allSatisfy { current in
+            candidateTokens.contains { candidate in
+                candidate == current
+                    || candidate.localizedCaseInsensitiveContains(current)
+                    || current.localizedCaseInsensitiveContains(candidate)
+            }
+        }
+    }
+
+    private func candidateLooksMoreComplete(
+        currentValue: String,
+        candidateValue: String,
+        currentTokens: Set<String>,
+        candidateTokens: Set<String>
+    ) -> Bool {
+        guard currentTokens.isEmpty || artistTokens(currentTokens, areRepresentedIn: candidateTokens) else {
+            return false
+        }
+        return candidateTokens.count > currentTokens.count || candidateValue.count > currentValue.count
     }
 
     private func artistTokensForDisplay(in value: String) -> [String] {
@@ -286,10 +350,13 @@ struct MetadataService {
             of: #"(?i)\s+(feat\.?|ft\.?|featuring|with)\s+"#,
             with: ";",
             options: .regularExpression
+        ).replacingOccurrences(
+            of: #"[;；/／,，|]+"#,
+            with: "、",
+            options: .regularExpression
         )
-        let separators = CharacterSet(charactersIn: ";；/／,，|")
         return normalized
-            .components(separatedBy: separators)
+            .components(separatedBy: "、")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .compactMap { usableMetadata($0) }
     }

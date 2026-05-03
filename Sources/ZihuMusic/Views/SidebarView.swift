@@ -58,14 +58,15 @@ struct SidebarView: View {
                 Button {
                     Task { await library.chooseAndImportFolder() }
                 } label: {
-                    Label("导入文件夹", systemImage: "folder.badge.plus")
+                    Label("选择文件夹", systemImage: "folder.badge.plus")
                 }
 
                 Button {
-                    Task { await library.importDefaultFolder() }
+                    Task { await library.rescanLastImportFolder() }
                 } label: {
-                    Label("扫描默认文件夹", systemImage: "arrow.clockwise")
+                    Label("重新扫描该文件夹", systemImage: "arrow.clockwise")
                 }
+                .disabled(!library.hasImportFolder)
             }
         }
     }
@@ -79,10 +80,10 @@ struct SidebarView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Divider()
-                Text("默认保存位置")
+                Text("下载保存位置")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(AppDirectories.defaultMusicFolder.path)
+                Text(library.hasImportFolder ? library.lastImportFolder : "未选择音乐文件夹")
                     .font(.caption)
                     .textSelection(.enabled)
             }
