@@ -1,5 +1,7 @@
 # zihusic
 
+🌐 **App Showcase/展示页：** [zihusic for macOS](https://zihenyag.github.io/zihusic/)
+
 **zihusic** is a beautiful, lightweight local music player for macOS.
 
 It is designed for people who keep their music files locally and want a clean player that opens directly into the library, artwork, lyrics, and playback controls. zihusic does not copy your music into its own storage. It keeps only lightweight library metadata and artwork cache, so your files stay where they are.
