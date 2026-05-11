@@ -3,12 +3,38 @@ import Foundation
 import UniformTypeIdentifiers
 
 private let lastImportFolderDefaultsKey = "lastImportFolder"
+private let selectedTrackIDDefaultsKey = "selectedTrackID"
+
+struct LibraryImportProgress: Equatable, Sendable {
+    let id: UUID
+    var completed: Int
+    var total: Int
+    var phase: String
+    var detail: String
+
+    var fraction: Double {
+        guard total > 0 else { return 0 }
+        return min(max(Double(completed) / Double(total), 0), 1)
+    }
+}
 
 @MainActor
 final class MusicLibraryStore: ObservableObject {
-    @Published var tracks: [MusicTrack] = []
-    @Published var selectedTrackID: MusicTrack.ID?
-    @Published var searchText = ""
+    @Published var tracks: [MusicTrack] = [] {
+        didSet { rebuildVisibleTracks() }
+    }
+    @Published var selectedTrackID: MusicTrack.ID? {
+        didSet {
+            guard selectedTrackID != oldValue else { return }
+            persistSelectedTrackID()
+        }
+    }
+    @Published var searchText = "" {
+        didSet { rebuildVisibleTracks() }
+    }
+    @Published private(set) var visibleTracks: [MusicTrack] = []
+    @Published private(set) var visibleTracksRevision = 0
+    @Published private(set) var importProgress: LibraryImportProgress?
     @Published var isImporting = false
     @Published var statusMessage = ""
     @Published var lastImportFolder = UserDefaults.standard.string(forKey: lastImportFolderDefaultsKey) ?? ""
@@ -25,13 +51,7 @@ final class MusicLibraryStore: ObservableObject {
     }
 
     var filteredTracks: [MusicTrack] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return tracks }
-        return tracks.filter {
-            $0.displayTitle.localizedCaseInsensitiveContains(query)
-                || $0.displayArtist.localizedCaseInsensitiveContains(query)
-                || $0.displayAlbum.localizedCaseInsensitiveContains(query)
-        }
+        visibleTracks
     }
 
     var selectedTrack: MusicTrack? {
@@ -44,8 +64,9 @@ final class MusicLibraryStore: ObservableObject {
             try AppDirectories.ensureCreated()
             guard FileManager.default.fileExists(atPath: AppDirectories.libraryFile.path) else { return }
             let data = try Data(contentsOf: AppDirectories.libraryFile)
-            tracks = try JSONDecoder.iso8601Decoder.decode([MusicTrack].self, from: data)
-            selectedTrackID = tracks.first?.id
+            let loadedTracks = try JSONDecoder.iso8601Decoder.decode([MusicTrack].self, from: data)
+            tracks = loadedTracks
+            restoreSelectedTrackID(from: loadedTracks)
         } catch {
             statusMessage = "读取资料库失败：\(error.localizedDescription)"
         }
@@ -55,16 +76,16 @@ final class MusicLibraryStore: ObservableObject {
         let cachedTracks = tracks
         guard !cachedTracks.isEmpty else { return }
 
-        let refreshed = await Task.detached(priority: .utility) {
-            let service = MetadataService()
-            var result: [MusicTrack] = []
-            for track in cachedTracks where FileManager.default.fileExists(atPath: track.filePath) {
-                if let updated = await service.loadTrack(from: track.fileURL, existing: track, source: track.source) {
-                    result.append(updated)
-                }
+        let requests = cachedTracks.compactMap { track -> TrackScanRequest? in
+            guard FileManager.default.fileExists(atPath: track.filePath),
+                  shouldReloadMetadata(for: track, fileURL: track.fileURL) else {
+                return nil
             }
-            return result
-        }.value
+            return TrackScanRequest(url: track.fileURL, existing: track)
+        }
+        guard !requests.isEmpty else { return }
+
+        let refreshed = await loadTracksConcurrently(requests)
 
         guard !refreshed.isEmpty else { return }
 
@@ -130,32 +151,67 @@ final class MusicLibraryStore: ObservableObject {
     }
 
     func importFolder(_ folder: URL) async {
+        guard !isImporting else {
+            statusMessage = "扫描仍在进行"
+            return
+        }
+
+        let scanID = UUID()
         isImporting = true
-        statusMessage = "正在扫描 \(folder.path)"
+        updateImportProgress(id: scanID, completed: 0, total: 0, phase: "正在查找音乐文件", detail: folder.path)
         lastImportFolder = folder.path
         UserDefaults.standard.set(folder.path, forKey: lastImportFolderDefaultsKey)
 
-        let existing = Dictionary(uniqueKeysWithValues: tracks.map { ($0.filePath, $0) })
+        let existing = Dictionary(uniqueKeysWithValues: tracks.map { (standardizedPath($0.fileURL), $0) })
         let urls = audioFiles(in: folder)
         let scannedPaths = Set(urls.map { standardizedPath($0) })
+        updateImportProgress(id: scanID, completed: 0, total: urls.count, phase: "正在扫描音乐", detail: "找到 \(urls.count) 首音乐")
 
-        let imported = await Task.detached(priority: .userInitiated) {
-            let service = MetadataService()
-            var imported: [MusicTrack] = []
-            for url in urls {
-                if let track = await service.loadTrack(from: url, existing: existing[url.path], source: .local) {
-                    imported.append(track)
-                }
+        var reused: [MusicTrack] = []
+        var requests: [TrackScanRequest] = []
+        reused.reserveCapacity(urls.count)
+        requests.reserveCapacity(urls.count)
+
+        for url in urls {
+            let existingTrack = existing[standardizedPath(url)]
+            if var cached = reusableTrack(existingTrack, for: url) {
+                cached.lyricsFilePath = findLyricsFile(for: cached)?.path
+                reused.append(cached)
+            } else {
+                requests.append(TrackScanRequest(url: url, existing: existingTrack))
             }
-            return imported
-        }.value
+        }
+
+        updateImportProgress(
+            id: scanID,
+            completed: reused.count,
+            total: urls.count,
+            phase: requests.isEmpty ? "正在整理资料库" : "正在读取变更",
+            detail: requests.isEmpty ? "全部文件未变化" : "需要读取 \(requests.count) 首"
+        )
+
+        let loaded = await loadTracksConcurrently(
+            requests,
+            progressID: scanID,
+            initialCompleted: reused.count,
+            total: urls.count
+        )
+        let imported = reused + loaded
 
         let removedCount = synchronize(imported, scannedPaths: scannedPaths, folder: folder)
         save()
         isImporting = false
-        statusMessage = removedCount > 0 ? "已导入 \(imported.count) 首音乐，移除 \(removedCount) 条失效记录" : "已导入 \(imported.count) 首音乐"
+        let finalStatus = removedCount > 0 ? "已导入 \(imported.count) 首音乐，移除 \(removedCount) 条失效记录" : "已导入 \(imported.count) 首音乐"
+        statusMessage = finalStatus
+        updateImportProgress(id: scanID, completed: urls.count, total: urls.count, phase: "扫描完成", detail: finalStatus)
+        statusMessage = finalStatus
         if selectedTrackID == nil {
             selectedTrackID = tracks.first?.id
+        }
+
+        try? await Task.sleep(nanoseconds: 900_000_000)
+        if importProgress?.id == scanID {
+            importProgress = nil
         }
     }
 
@@ -264,6 +320,26 @@ final class MusicLibraryStore: ObservableObject {
         tracks = sortedTracks(from: Array(byPath.values))
     }
 
+    private func restoreSelectedTrackID(from loadedTracks: [MusicTrack]) {
+        let savedID = UserDefaults.standard
+            .string(forKey: selectedTrackIDDefaultsKey)
+            .flatMap(UUID.init(uuidString:))
+
+        if let savedID, loadedTracks.contains(where: { $0.id == savedID }) {
+            selectedTrackID = savedID
+        } else {
+            selectedTrackID = nil
+        }
+    }
+
+    private func persistSelectedTrackID() {
+        if let selectedTrackID {
+            UserDefaults.standard.set(selectedTrackID.uuidString, forKey: selectedTrackIDDefaultsKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: selectedTrackIDDefaultsKey)
+        }
+    }
+
     @discardableResult
     private func synchronize(_ imported: [MusicTrack], scannedPaths: Set<String>, folder: URL) -> Int {
         let folderPath = standardizedPath(folder)
@@ -323,6 +399,147 @@ final class MusicLibraryStore: ObservableObject {
             return url
         }
         .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    private func rebuildVisibleTracks() {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filtered = query.isEmpty ? tracks : tracks.filter {
+            $0.displayTitle.localizedCaseInsensitiveContains(query)
+                || $0.displayArtist.localizedCaseInsensitiveContains(query)
+                || $0.displayAlbum.localizedCaseInsensitiveContains(query)
+        }
+
+        visibleTracks = filtered.sorted { left, right in
+            let leftTitle = Self.sortKey(left.displayTitle)
+            let rightTitle = Self.sortKey(right.displayTitle)
+            if leftTitle == rightTitle {
+                return Self.sortKey(left.displayArtist) < Self.sortKey(right.displayArtist)
+            }
+            return leftTitle < rightTitle
+        }
+        visibleTracksRevision &+= 1
+    }
+
+    private func loadTracksConcurrently(
+        _ requests: [TrackScanRequest],
+        progressID: UUID? = nil,
+        initialCompleted: Int = 0,
+        total: Int = 0
+    ) async -> [MusicTrack] {
+        guard !requests.isEmpty else { return [] }
+
+        var loaded: [MusicTrack] = []
+        loaded.reserveCapacity(requests.count)
+        var completed = initialCompleted
+
+        for batchStart in stride(from: 0, to: requests.count, by: Self.metadataScanConcurrency) {
+            let batchEnd = min(batchStart + Self.metadataScanConcurrency, requests.count)
+            let batch = Array(requests[batchStart..<batchEnd])
+
+            await withTaskGroup(of: MusicTrack?.self) { group in
+                for request in batch {
+                    group.addTask {
+                        await MetadataService().loadTrack(from: request.url, existing: request.existing, source: .local)
+                    }
+                }
+
+                for await track in group {
+                    if let track {
+                        loaded.append(track)
+                    }
+                    completed += 1
+                    if let progressID {
+                        updateImportProgress(
+                            id: progressID,
+                            completed: completed,
+                            total: total,
+                            phase: "正在读取变更",
+                            detail: "\(completed)/\(total)"
+                        )
+                    }
+                }
+            }
+        }
+
+        return loaded
+    }
+
+    private func reusableTrack(_ track: MusicTrack?, for url: URL) -> MusicTrack? {
+        guard var track,
+              let modifiedAt = Self.fileModifiedAt(for: url),
+              Self.sameModificationDate(track.fileModifiedAt, modifiedAt) else {
+            return nil
+        }
+
+        track.fileModifiedAt = modifiedAt
+        return track
+    }
+
+    private func shouldReloadMetadata(for track: MusicTrack, fileURL: URL) -> Bool {
+        guard let modifiedAt = Self.fileModifiedAt(for: fileURL) else { return true }
+        return !Self.sameModificationDate(track.fileModifiedAt, modifiedAt)
+    }
+
+    private func updateImportProgress(id: UUID, completed: Int, total: Int, phase: String, detail: String) {
+        importProgress = LibraryImportProgress(
+            id: id,
+            completed: completed,
+            total: total,
+            phase: phase,
+            detail: detail
+        )
+        statusMessage = total > 0 ? "\(phase)：\(completed)/\(total)" : phase
+    }
+
+    private func findLyricsFile(for track: MusicTrack) -> URL? {
+        let url = track.fileURL
+        let folder = url.deletingLastPathComponent()
+        let base = url.deletingPathExtension().lastPathComponent
+        let title = track.displayTitle
+        let artist = track.displayArtist
+        let names = [
+            "\(base).ass",
+            "\(base).ASS",
+            "\(title).ass",
+            "\(title).ASS",
+            artist.isEmpty ? nil : "\(artist) - \(title).ass",
+            artist.isEmpty ? nil : "\(artist) - \(title).ASS",
+            "\(base).lrc",
+            "\(base).LRC",
+            "\(title).lrc",
+            "\(title).LRC",
+            artist.isEmpty ? nil : "\(artist) - \(title).lrc"
+        ].compactMap { $0 }
+
+        return names
+            .map { folder.appendingPathComponent($0) }
+            .first { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    private static let metadataScanConcurrency = max(2, min(6, ProcessInfo.processInfo.activeProcessorCount))
+
+    private static func fileModifiedAt(for url: URL) -> Date? {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        return attributes?[.modificationDate] as? Date
+    }
+
+    private static func sameModificationDate(_ left: Date?, _ right: Date?) -> Bool {
+        guard let left, let right else { return false }
+        return abs(left.timeIntervalSince(right)) < 1
+    }
+
+    private static func sortKey(_ value: String) -> String {
+        let mutable = NSMutableString(string: value) as CFMutableString
+        CFStringTransform(mutable, nil, kCFStringTransformToLatin, false)
+        CFStringTransform(mutable, nil, kCFStringTransformStripDiacritics, false)
+        return (mutable as String)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+    }
+
+    private struct TrackScanRequest: Sendable {
+        var url: URL
+        var existing: MusicTrack?
     }
 }
 

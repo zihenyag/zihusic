@@ -39,6 +39,13 @@ struct ZihuMusicApp: App {
 
                 Divider()
 
+                Button("搜索") {
+                    NotificationCenter.default.post(name: .toggleZihuSearch, object: nil)
+                }
+                .keyboardShortcut("f", modifiers: [.command])
+
+                Divider()
+
                 Button(player.isPlaying ? "暂停" : "播放") {
                     if player.currentTrack == nil {
                         library.playSelected(using: player)

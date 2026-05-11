@@ -3,6 +3,8 @@ import SwiftUI
 struct PlayerBarView: View {
     @EnvironmentObject private var library: MusicLibraryStore
     @EnvironmentObject private var player: AudioPlayerService
+    @State private var isScrubbing = false
+    @State private var scrubTime: TimeInterval = 0
 
     var body: some View {
         HStack(spacing: 16) {
@@ -20,17 +22,30 @@ struct PlayerBarView: View {
                             .lineLimit(1)
                     }
                     Spacer()
-                    Text("\(DisplayFormatters.time(player.currentTime)) / \(DisplayFormatters.time(player.duration))")
+                    Text("\(DisplayFormatters.time(displayedTime)) / \(DisplayFormatters.time(duration))")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
 
                 Slider(
                     value: Binding(
-                        get: { player.currentTime },
-                        set: { player.seek(to: $0) }
+                        get: { displayedTime },
+                        set: { value in
+                            scrubTime = boundedTime(value)
+                            isScrubbing = true
+                        }
                     ),
-                    in: 0...max(player.duration, 1)
+                    in: 0...max(duration, displayedTime, 1),
+                    onEditingChanged: { editing in
+                        if editing {
+                            scrubTime = currentTime
+                            isScrubbing = true
+                        } else {
+                            let target = boundedTime(scrubTime)
+                            isScrubbing = false
+                            player.seek(to: target)
+                        }
+                    }
                 )
             }
 
@@ -71,5 +86,23 @@ struct PlayerBarView: View {
             }
         }
         .padding(.horizontal, 16)
+    }
+
+    private var duration: TimeInterval {
+        player.boundedDuration
+    }
+
+    private var currentTime: TimeInterval {
+        boundedTime(player.boundedCurrentTime)
+    }
+
+    private var displayedTime: TimeInterval {
+        isScrubbing ? boundedTime(scrubTime) : currentTime
+    }
+
+    private func boundedTime(_ value: TimeInterval) -> TimeInterval {
+        let safeValue = value.isFinite ? max(0, value) : 0
+        guard duration > 0 else { return safeValue }
+        return min(safeValue, duration)
     }
 }

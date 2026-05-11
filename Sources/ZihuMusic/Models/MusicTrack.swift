@@ -1,11 +1,11 @@
 import Foundation
 
-enum TrackSource: String, Codable, CaseIterable {
+enum TrackSource: String, Codable, CaseIterable, Sendable {
     case local
     case downloaded
 }
 
-struct MusicTrack: Identifiable, Codable, Hashable {
+struct MusicTrack: Identifiable, Codable, Hashable, Sendable {
     var id: UUID
     var filePath: String
     var title: String

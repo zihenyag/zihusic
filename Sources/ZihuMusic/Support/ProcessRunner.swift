@@ -40,6 +40,7 @@ enum ProcessRunner {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
+        process.environment = utf8Environment()
 
         let stdout = Pipe()
         let stderr = Pipe()
@@ -59,5 +60,13 @@ enum ProcessRunner {
         }
 
         return ProcessResult(stdout: output, stderr: error)
+    }
+
+    private static func utf8Environment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        environment["LANG"] = "en_US.UTF-8"
+        environment["LC_ALL"] = "en_US.UTF-8"
+        environment["LC_CTYPE"] = "en_US.UTF-8"
+        return environment
     }
 }

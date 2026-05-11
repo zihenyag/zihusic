@@ -5,7 +5,7 @@ MODE="${1:-run}"
 APP_NAME="zihusic"
 BUNDLE_ID="com.local.zihusic"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="${APP_VERSION:-0.1.1}"
+APP_VERSION="${APP_VERSION:-0.3.0}"
 CONFIGURATION="${CONFIGURATION:-release}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
