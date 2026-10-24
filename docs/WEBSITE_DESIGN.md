@@ -1,7 +1,8 @@
 # Website design
 
-- Color: warm paper / charcoal, with a restrained lavender accent shared with the player. Light and dark previews switch the whole page.
-- Typography: Helvetica Neue with PingFang SC; large, closely spaced headlines, 13–15 px body copy and small monospaced technical labels.
-- Layout: 1180 px content width, broad app screenshot, ruled specifications and alternating detail sections. Single column below 640 px.
-- Components: real app screenshots, compact appearance switch, direct release downloads, inline installation steps and expandable troubleshooting.
-- Content: lead with lightweight local playback. Preserve formats, search/play modes, lyrics, metadata/artwork editing and file ownership. Present AirPlay as the new experimental feature.
+- Color: a fixed near-white canvas, plum text and soft lavender surfaces. Appearance controls change only the product screenshot, never the page palette.
+- Typography: SF Pro / Helvetica Neue with PingFang SC. Center the requested three-line headline; keep feature copy short and readable.
+- Layout: centered hero, a large complete screenshot, six concise core features, one AirPlay feature panel and a compact download section. Use a two-column feature grid on small screens.
+- Components: rounded screenshot stage, accessible image selector, outline icons and direct release downloads. Installation details live in the README.
+- Assets: use only the user's Desktop screenshots from 2026-10-24 at 15:03:41 (light) and 15:03:58 (dark), losslessly encoded with the original transparency and pixels intact. No lyric crop or old editing images.
+- Content: retain local playback, formats, search/play modes, lyrics, metadata/artwork editing and native windows. Remove the requested implementation, authorization, playback-default and lyric-interaction details from the landing page. AirPlay keeps its experimental label and documentation link.
