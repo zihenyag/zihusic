@@ -17,13 +17,14 @@ struct LyricsView: View {
                 let current = service.currentIndex(in: lines, time: currentTime)
                 ScrollViewReader { proxy in
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 6) {
                             ForEach(Array(lines.enumerated()), id: \.element.id) { index, line in
                                 Text(line.text)
-                                    .font(index == current ? .title3.weight(.semibold) : .body)
+                                    .font(.system(size: 22, weight: .semibold))
                                     .foregroundStyle(index == current ? .primary : .secondary)
                                     .id(line.id)
-                                    .lineLimit(3)
+                                    .lineLimit(nil)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)

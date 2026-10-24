@@ -1,5 +1,32 @@
 # zihusic Release Notes
 
+## v0.4.0
+
+### 中文
+
+- 新增 AirPlay 多设备播放，自动接入同一网络中的接收器；每次启动默认只开启本机声音。
+- 每台扬声器可独立停止、恢复和调节音量。停止播放保留连接；支持本机延迟校准和“播放 → AirPlay 全同步”。
+- 歌词固定字号，仅用颜色强调当前行；改善翻译与多行排版，滚轮浏览后 3 秒回到播放位置。
+- 缓存并预取歌词，改善启动和切歌加载；修复换歌、跳转时旧音频时钟导致的高亮错位。
+- 精简悬浮控制条，加入明暗模式边缘模糊；重整“音乐 / 窗口 / 播放”菜单，修复闪烁并支持原生全屏。
+- 更新 GitHub Pages 展示页和安装说明。
+
+下载 `zihusic_app_v0.4.0.zip`，解压后将 `zihusic.app` 放入 Applications。要求 macOS 14 或更新版本，当前构建为 Apple Silicon。发布包采用临时签名，未做 Developer ID 公证。
+
+AirPlay 自动接入需在“系统设置 → 隐私与安全性 → 辅助功能”中允许已安装的 zihusic。更新后若旧授权失效，请移除旧条目，再添加 Applications 中的新版本。普通本机播放不需要此权限。
+
+AirPlay 多设备功能仍为实验性实现，使用受可用性检查保护的非公开 AVFoundation 接口。已在 Mac mini 与 MacBook Air 之间验证歌曲基本同步、独立停止/恢复和设备后上线自动接入；其他接收器、多远端组合和不同网络仍需验证。iPad 不作为接收端支持。
+
+### English
+
+- Add automatic AirPlay receiver enrollment, independent speaker playback/volume, local delay calibration, and manual timeline resynchronization. Each launch starts with only this Mac audible.
+- Keep lyrics at a fixed size with color-only highlighting, measured translated/wrapped rows, smooth line transitions, and a 3-second return after wheel browsing.
+- Cache and prefetch lyrics. Fix stale playback clocks and lyric animations after track changes or seeks.
+- Refine floating controls and appearance-aware edge blur. Rebuild the Music / Window / Playback menus, fix menu flicker, and support native fullscreen.
+- Refresh the project website and installation instructions.
+
+Requires macOS 14+, Apple Silicon. The app is ad-hoc signed and not notarized. Accessibility consent is required only for automatic AirPlay enrollment. Grouped AirPlay uses guarded private AVFoundation interfaces and remains experimental; the tested Mac mini / MacBook Air pair does not establish compatibility with all receivers.
+
 ## v0.3.0
 
 ### English

@@ -1,70 +1,60 @@
 import AppKit
 import SwiftUI
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var menus: AppMenuController?
+    private var window: NSWindow?
+    private var library: MusicLibraryStore?
+    private var player: AudioPlayerService?
+    private var downloads: DownloadStore?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.regular)
+        let library = MusicLibraryStore()
+        let player = AudioPlayerService()
+        let downloads = DownloadStore()
+        self.library = library
+        self.player = player
+        self.downloads = downloads
+        menus = AppMenuController(library: library, player: player)
+
+        let content = ContentView()
+            .environmentObject(library)
+            .environmentObject(player)
+            .environmentObject(downloads)
+            .frame(minWidth: 1180, minHeight: 760)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1180, height: 788),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered, defer: false)
+        window.title = "zihusic"
+        window.contentMinSize = NSSize(width: 1180, height: 760)
+        window.collectionBehavior.insert(.fullScreenPrimary)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: content)
+        window.center()
+        window.setFrameAutosaveName("zihusic.main")
+        self.window = window
+        window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { window?.makeKeyAndOrderFront(nil) }
+        return true
     }
 }
 
+/// AppKit owns the window and main menu. A SwiftUI WindowGroup also owns its
+/// command menu and would repeatedly replace a separately installed NSMenu.
 @main
-struct ZihuMusicApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var library = MusicLibraryStore()
-    @StateObject private var player = AudioPlayerService()
-    @StateObject private var downloads = DownloadStore()
-
-    var body: some Scene {
-        WindowGroup("zihusic") {
-            ContentView()
-                .environmentObject(library)
-                .environmentObject(player)
-                .environmentObject(downloads)
-                .frame(minWidth: 1180, minHeight: 760)
-        }
-        .windowStyle(.hiddenTitleBar)
-        .commands {
-            CommandMenu("音乐") {
-                Button("选择文件夹...") {
-                    Task { await library.chooseAndImportFolder() }
-                }
-                .keyboardShortcut("o", modifiers: [.command])
-
-                Button("重新扫描该文件夹") {
-                    Task { await library.rescanLastImportFolder() }
-                }
-                .keyboardShortcut("r", modifiers: [.command])
-                .disabled(!library.hasImportFolder)
-
-                Divider()
-
-                Button("搜索") {
-                    NotificationCenter.default.post(name: .toggleZihuSearch, object: nil)
-                }
-                .keyboardShortcut("f", modifiers: [.command])
-
-                Divider()
-
-                Button(player.isPlaying ? "暂停" : "播放") {
-                    if player.currentTrack == nil {
-                        library.playSelected(using: player)
-                    } else {
-                        player.togglePlayback()
-                    }
-                }
-                .keyboardShortcut(.space, modifiers: [])
-
-                Button("下一首") {
-                    library.playNext(using: player)
-                }
-                .keyboardShortcut(.rightArrow, modifiers: [.command])
-
-                Button("上一首") {
-                    library.playPrevious(using: player)
-                }
-                .keyboardShortcut(.leftArrow, modifiers: [.command])
-            }
-        }
+struct ZihuMusicApp {
+    @MainActor
+    static func main() {
+        let app = NSApplication.shared
+        let delegate = AppDelegate()
+        app.setActivationPolicy(.regular)
+        app.delegate = delegate
+        app.run()
+        withExtendedLifetime(delegate) {}
     }
 }

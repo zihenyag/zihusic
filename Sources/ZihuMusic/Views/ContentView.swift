@@ -5,6 +5,9 @@ import SwiftUI
 extension Notification.Name {
     static let collapseZihuSearch = Notification.Name("collapseZihuSearch")
     static let toggleZihuSearch = Notification.Name("toggleZihuSearch")
+    static let toggleZihuPlayback = Notification.Name("toggleZihuPlayback")
+    static let nextZihuTrack = Notification.Name("nextZihuTrack")
+    static let previousZihuTrack = Notification.Name("previousZihuTrack")
 }
 
 private extension Color {
@@ -108,7 +111,7 @@ struct ContentView: View {
     @EnvironmentObject private var library: MusicLibraryStore
     @EnvironmentObject private var player: AudioPlayerService
     @AppStorage("playbackMode") private var playbackMode: PlaybackMode = .listLoop
-    @State private var isSidebarVisible = true
+    @AppStorage("isSidebarVisible") private var isSidebarVisible = true
     @State private var locateRequestID = 0
     @State private var hasResolvedInitialSelection = false
     @State private var wasSearching = false
@@ -141,13 +144,25 @@ struct ContentView: View {
             .animation(.easeInOut(duration: 0.25), value: isSidebarVisible)
             .ignoresSafeArea(edges: .top)
 
+            VStack(spacing: 0) {
+                WindowEdgeBlur(edge: .top)
+                    .frame(height: 68)
+                Spacer(minLength: 0)
+                WindowEdgeBlur(edge: .bottom)
+                    .frame(height: 100)
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .zIndex(10)
+
             PlayerDock(
                 playbackMode: $playbackMode,
                 previous: playPrevious,
                 toggle: togglePlayback,
                 next: playNext
             )
-            .frame(maxWidth: 1040)
+            .frame(maxWidth: 950)
             .frame(height: TrackListMetrics.bottomGlassHeight)
             .padding(.horizontal, TrackListMetrics.bottomGlassInset)
             .padding(.bottom, TrackListMetrics.bottomGlassInset)
@@ -169,6 +184,17 @@ struct ContentView: View {
         }
         .foregroundStyle(AppColors.primaryText)
         .background(WindowStandardButtonHider())
+        .alert("播放失败", isPresented: Binding(
+            get: { player.errorMessage != nil },
+            set: { if !$0 { player.errorMessage = nil } }
+        )) {
+            Button("好") { player.errorMessage = nil }
+        } message: {
+            Text(player.errorMessage ?? "")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleZihuPlayback)) { _ in togglePlayback() }
+        .onReceive(NotificationCenter.default.publisher(for: .nextZihuTrack)) { _ in playNext() }
+        .onReceive(NotificationCenter.default.publisher(for: .previousZihuTrack)) { _ in playPrevious() }
         .onAppear {
             player.onFinished = { handleFinished() }
             resolveInitialOrSearchSelection()
@@ -295,6 +321,54 @@ struct ContentView: View {
 
 }
 
+/// Fade the backdrop blur toward the content, keeping both floating control
+/// layers above it. A material mask samples the live content beneath the edge.
+private struct WindowEdgeBlur: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let edge: VerticalEdge
+
+    var body: some View {
+        ZStack {
+            AdaptiveBackdropBlur(isDark: colorScheme == .dark)
+            if colorScheme == .dark {
+                Color.black.opacity(0.78)
+            } else {
+                Color.white.opacity(0.12)
+            }
+        }
+            .mask {
+                LinearGradient(
+                    stops: [
+                        .init(color: .white, location: 0),
+                        .init(color: .white.opacity(0.85), location: 0.25),
+                        .init(color: .white.opacity(0.35), location: 0.65),
+                        .init(color: .clear, location: 1)
+                    ],
+                    startPoint: edge == .top ? .top : .bottom,
+                    endPoint: edge == .top ? .bottom : .top
+                )
+            }
+    }
+}
+
+private struct AdaptiveBackdropBlur: NSViewRepresentable {
+    let isDark: Bool
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.blendingMode = .withinWindow
+        view.state = .active
+        view.material = .hudWindow
+        view.isEmphasized = false
+        view.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
+    }
+}
+
 private struct AppBackdrop: View {
     var body: some View {
         AppColors.background
@@ -306,10 +380,10 @@ private enum TrackListMetrics {
     static let tableHorizontalInset: CGFloat = 8
     static let tableRowHeight: CGFloat = 34
     static let topBlankRowHeight: CGFloat = 40
-    static let bottomGlassHeight: CGFloat = 112
-    static let bottomGlassInset: CGFloat = 18
+    static let bottomGlassHeight: CGFloat = 94
+    static let bottomGlassInset: CGFloat = 16
     static let bottomContentInset: CGFloat = bottomGlassHeight + bottomGlassInset * 2
-    static let bottomGlassCornerRadius: CGFloat = 32
+    static let bottomGlassCornerRadius: CGFloat = 25
     static let artworkSize: CGFloat = 22
     static let columnUnit: CGFloat = 34
     static let coverColumnWidth: CGFloat = columnUnit
@@ -1485,8 +1559,10 @@ private struct UnifiedAppChrome: View {
                 }
 
                 WindowDotButton(color: Color(red: 0.18, green: 0.78, blue: 0.27)) {
-                    NSApp.keyWindow?.zoom(nil)
+                    (NSApp.keyWindow ?? NSApp.mainWindow)?.toggleFullScreen(nil)
                 }
+                .help("进入或退出全屏")
+                .accessibilityLabel("全屏")
             }
             .frame(width: TrackListMetrics.trafficLightsWidth, height: 30, alignment: .leading)
             .position(
@@ -1717,14 +1793,17 @@ private struct WindowStandardButtonHider: NSViewRepresentable {
 
     private func hideButtons(in window: NSWindow?) {
         guard let window else { return }
-        window.styleMask.insert(.fullSizeContentView)
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.toolbar = nil
-        window.isMovableByWindowBackground = false
-        window.standardWindowButton(.closeButton)?.isHidden = true
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        window.standardWindowButton(.zoomButton)?.isHidden = true
+        // Progress updates also update this representable. Reapplying styleMask
+        // on every tick can relayout the native lyric viewport mid-transition.
+        if !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }
+        if !window.collectionBehavior.contains(.fullScreenPrimary) { window.collectionBehavior.insert(.fullScreenPrimary) }
+        if !window.titlebarAppearsTransparent { window.titlebarAppearsTransparent = true }
+        if window.titleVisibility != .hidden { window.titleVisibility = .hidden }
+        if window.toolbar != nil { window.toolbar = nil }
+        if window.isMovableByWindowBackground { window.isMovableByWindowBackground = false }
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            if let button = window.standardWindowButton(type), !button.isHidden { button.isHidden = true }
+        }
     }
 }
 
@@ -2048,265 +2127,47 @@ private struct LyricsSidePane: View {
     let track: MusicTrack?
 
     var body: some View {
-        SmoothLyricsPane(track: track)
+        SteppedLyricsPane(track: track)
     }
 }
 
-private struct SmoothLyricsPane: View {
-    @EnvironmentObject private var library: MusicLibraryStore
+private struct SteppedLyricsPane: View {
     @EnvironmentObject private var player: AudioPlayerService
     let track: MusicTrack?
-    @State private var lines: [LyricsLine] = []
-    @State private var manualPosition: Double?
-    @State private var autoResumeTask: Task<Void, Never>?
-
-    private let rowHeight: CGFloat = 86
-    private let lyricLead: TimeInterval = 0.4
-    private let autoResumeDelay: UInt64 = 5_000_000_000
+    @State private var timeline = LyricsTimeline([])
+    @State private var loading = true
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: false)) { _ in
-            let renderLines = normalizedLines(lines)
-            let time = player.preciseCurrentTime + lyricLead
-
-            GeometryReader { geometry in
-                ZStack {
-                    if renderLines.isEmpty {
-                        Text("未找到歌词")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(AppColors.mutedText)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        let activeIndex = currentIndex(in: renderLines, time: time)
-                        let autoPosition = continuousPosition(in: renderLines, time: time)
-                        let displayedPosition = manualPosition ?? autoPosition
-                        let visualCenterIndex = Int(displayedPosition.rounded())
-                        let range = visibleRange(around: visualCenterIndex, count: renderLines.count, height: geometry.size.height)
-
-                        VStack(spacing: 0) {
-                            ForEach(range, id: \.self) { index in
-                                let line = renderLines[index]
-
-                                LyricLineView(
-                                    text: line.text,
-                                    isCurrent: index == activeIndex,
-                                    isNear: abs(index - activeIndex) <= 2
-                                )
-                                .frame(minHeight: rowHeight)
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 28)
-                        .offset(y: lyricOffset(in: geometry.size.height, position: displayedPosition) + CGFloat(range.lowerBound) * rowHeight)
-                        .clipped()
-
-                        LyricsInteractionCaptureView(
-                            displayedPosition: displayedPosition,
-                            rowHeight: rowHeight,
-                            lineCount: renderLines.count,
-                            viewportHeight: geometry.size.height,
-                            onScroll: { deltaY in
-                                handleUserScroll(deltaY: deltaY, from: displayedPosition, lineCount: renderLines.count)
-                            },
-                            onClick: { index in
-                                guard renderLines.indices.contains(index) else { return }
-                                seekToLyric(renderLines[index], index: index)
-                            }
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
-            }
-        }
-        .onAppear { reloadLyrics() }
-        .onChange(of: track?.id) { _, _ in reloadLyrics() }
-        .onDisappear {
-            autoResumeTask?.cancel()
-            autoResumeTask = nil
-        }
-    }
-
-    private func currentIndex(in renderLines: [RenderedLyricLine], time: TimeInterval) -> Int {
-        guard !renderLines.isEmpty else { return 0 }
-        var current = 0
-        for (index, line) in renderLines.enumerated() where line.time <= time {
-            current = index
-        }
-        return current
-    }
-
-    private func visibleRange(around index: Int, count: Int, height: CGFloat) -> Range<Int> {
-        let visibleRows = Int(ceil(height / rowHeight))
-        let radius = max(10, visibleRows + 4)
-        let lower = max(0, index - radius)
-        let upper = min(count, index + radius + 1)
-        return lower..<upper
-    }
-
-    private func lyricOffset(in height: CGFloat, position: Double) -> CGFloat {
-        return height / 2 - rowHeight / 2 - CGFloat(position) * rowHeight
-    }
-
-    private func continuousPosition(in renderLines: [RenderedLyricLine], time: TimeInterval) -> Double {
-        guard !renderLines.isEmpty else { return 0 }
-        let index = currentIndex(in: renderLines, time: time)
-        guard renderLines.indices.contains(index + 1) else { return Double(index) }
-        let start = renderLines[index].time
-        let end = renderLines[index + 1].time
-        let span = max(end - start, 0.8)
-        let progress = min(max((time - start) / span, 0), 1)
-        return Double(index) + smoothstep(progress)
-    }
-
-    private func normalizedLines(_ source: [LyricsLine]) -> [RenderedLyricLine] {
-        guard !source.isEmpty else { return [] }
-
-        var times = source.map(\.time)
-        let leadingIntroCount = source.prefix { $0.time <= 0.05 }.count
-
-        if leadingIntroCount > 1,
-           leadingIntroCount < source.count {
-            let firstFormalTime = source[leadingIntroCount].time
-            if firstFormalTime > 2 {
-                let available = max(firstFormalTime - 1.2, 0.6)
-                let spacing = min(2.4, max(0.9, available / Double(leadingIntroCount)))
-                for index in 0..<leadingIntroCount {
-                    times[index] = min(Double(index) * spacing, max(0, firstFormalTime - 1.2))
+        LyricsViewport(lines: timeline.lines, currentIndex: timeline.index(at: player.boundedCurrentTime),
+                       topExclusion: 68, bottomExclusion: TrackListMetrics.bottomContentInset,
+                       accent: AppNSColors.accent, normal: AppNSColors.tertiaryText,
+                       hover: AppNSColors.primaryText) { player.seek(to: $0) }
+            .overlay {
+                if timeline.lines.isEmpty && !loading {
+                    Text("未找到歌词")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(AppColors.mutedText)
+                        .allowsHitTesting(false)
                 }
             }
-        }
-
-        return source.enumerated().map { index, line in
-            RenderedLyricLine(id: line.id, time: times[index], seekTime: max(0, times[index]), text: line.text)
-        }
-    }
-
-    private func smoothstep(_ value: Double) -> Double {
-        value * value * (3 - 2 * value)
-    }
-
-    private func handleUserScroll(deltaY: CGFloat, from displayedPosition: Double, lineCount: Int) {
-        guard lineCount > 0 else { return }
-        let nextPosition = min(
-            max(displayedPosition - Double(deltaY / rowHeight), 0),
-            Double(max(lineCount - 1, 0))
-        )
-        manualPosition = nextPosition
-        scheduleAutoResume()
-    }
-
-    private func seekToLyric(_ line: RenderedLyricLine, index: Int) {
-        autoResumeTask?.cancel()
-        manualPosition = Double(index)
-        player.seek(to: line.seekTime)
-        autoResumeTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 220_000_000)
-            guard !Task.isCancelled else { return }
-            manualPosition = nil
-            autoResumeTask = nil
-        }
-    }
-
-    private func scheduleAutoResume() {
-        autoResumeTask?.cancel()
-        autoResumeTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: autoResumeDelay)
-            guard !Task.isCancelled else { return }
-            manualPosition = nil
-            autoResumeTask = nil
-        }
-    }
-
-    private func reloadLyrics() {
-        autoResumeTask?.cancel()
-        autoResumeTask = nil
-        manualPosition = nil
-        guard let track else {
-            lines = []
-            return
-        }
-        lines = library.lyrics(for: track)
-    }
-
-    private struct RenderedLyricLine: Identifiable, Hashable {
-        let id: UUID
-        let time: TimeInterval
-        let seekTime: TimeInterval
-        let text: String
-    }
-}
-
-private struct LyricLineView: View {
-    let text: String
-    let isCurrent: Bool
-    let isNear: Bool
-
-    var body: some View {
-        Text(text)
-            .font(.system(size: isCurrent ? 24 : 16, weight: isCurrent ? .heavy : .semibold))
-            .foregroundStyle(
-                isCurrent
-                    ? AppColors.accentStrong
-                    : AppColors.tertiaryText.opacity(isNear ? 0.86 : 0.58)
-            )
-            .multilineTextAlignment(.center)
-            .lineSpacing(3)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity)
-            .contentTransition(.opacity)
-    }
-}
-
-private struct LyricsInteractionCaptureView: NSViewRepresentable {
-    let displayedPosition: Double
-    let rowHeight: CGFloat
-    let lineCount: Int
-    let viewportHeight: CGFloat
-    let onScroll: (CGFloat) -> Void
-    let onClick: (Int) -> Void
-
-    func makeNSView(context: Context) -> LyricsInteractionView {
-        let view = LyricsInteractionView()
-        view.onScroll = onScroll
-        view.onClick = onClick
-        return view
-    }
-
-    func updateNSView(_ nsView: LyricsInteractionView, context: Context) {
-        nsView.displayedPosition = displayedPosition
-        nsView.rowHeight = rowHeight
-        nsView.lineCount = lineCount
-        nsView.viewportHeight = viewportHeight
-        nsView.onScroll = onScroll
-        nsView.onClick = onClick
-    }
-}
-
-private final class LyricsInteractionView: NSView {
-    var displayedPosition: Double = 0
-    var rowHeight: CGFloat = 1
-    var lineCount = 0
-    var viewportHeight: CGFloat = 1
-    var onScroll: ((CGFloat) -> Void)?
-    var onClick: ((Int) -> Void)?
-
-    override var isFlipped: Bool { true }
-    override var acceptsFirstResponder: Bool { true }
-
-    override func scrollWheel(with event: NSEvent) {
-        let delta = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.deltaY * 8
-        guard abs(delta) > 0.1 else { return }
-        onScroll?(delta)
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        guard lineCount > 0, rowHeight > 0 else { return }
-        let point = convert(event.locationInWindow, from: nil)
-        let approximateIndex = displayedPosition + Double((point.y - viewportHeight / 2) / rowHeight)
-        let index = min(max(Int(approximateIndex.rounded()), 0), lineCount - 1)
-        onClick?(index)
+            .task(id: track.map(LyricsRepository.Source.init)) {
+                guard let track else {
+                    timeline = LyricsTimeline([])
+                    loading = false
+                    return
+                }
+                let repository = LyricsRepository.shared
+                timeline = repository.cached(for: .init(track)) ?? LyricsTimeline([])
+                loading = timeline.lines.isEmpty
+                if let preview = await repository.preview(for: track), !Task.isCancelled {
+                    timeline = preview
+                    loading = false
+                }
+                let loaded = await repository.timeline(for: track)
+                guard !Task.isCancelled else { return }
+                timeline = loaded
+                loading = false
+            }
     }
 }
 
@@ -2323,30 +2184,25 @@ private struct PlayerDock: View {
     var body: some View {
         HStack(spacing: 0) {
             NowPlayingMini(track: player.currentTrack ?? library.selectedTrack)
-                .frame(width: 240, alignment: .leading)
+                .frame(width: 200, alignment: .leading)
 
             Spacer(minLength: 0)
 
-            VStack(spacing: 8) {
-                HStack(spacing: 22) {
-                    TransportButton(systemImage: "backward.fill", action: previous, help: "上一首")
+            VStack(spacing: 6) {
+                HStack(spacing: 18) {
+                    TransportButton(systemImage: "backward", action: previous, help: "上一首")
 
                     Button(action: toggle) {
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 30, weight: .heavy))
-                            .foregroundStyle(.white)
-                            .frame(width: 64, height: 64)
-                            .background(
-                                Circle()
-                                    .fill(AppColors.accent)
-                                    .shadow(color: AppColors.accent.opacity(0.35), radius: 12, y: 6)
-                            )
+                        Image(systemName: player.isPlaying ? "pause" : "play")
+                            .font(.system(size: 24, weight: .light))
+                            .foregroundStyle(AppColors.accent)
+                            .frame(width: 44, height: 44)
                     }
                     .buttonStyle(.plain)
                     .contentShape(Circle().inset(by: -10))
                     .help(player.isPlaying ? "暂停" : "播放")
 
-                    TransportButton(systemImage: "forward.fill", action: next, help: "下一首")
+                    TransportButton(systemImage: "forward", action: next, help: "下一首")
                 }
 
                 HStack(spacing: 12) {
@@ -2374,7 +2230,7 @@ private struct PlayerDock: View {
                         }
                     )
                     .tint(AppColors.accent)
-                    .frame(width: 440)
+                    .frame(width: 380)
 
                     Text(DisplayFormatters.time(timelineDuration))
                         .frame(width: 46, alignment: .leading)
@@ -2382,18 +2238,18 @@ private struct PlayerDock: View {
                 .font(.system(size: 12, weight: .medium).monospacedDigit())
                 .foregroundStyle(AppColors.tertiaryText)
             }
-            .frame(width: 560)
+            .frame(width: 500)
 
             Spacer(minLength: 0)
 
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 ModeCluster(selectedMode: $playbackMode)
-                VolumeControl()
+                SpeakerOutputButton()
             }
-            .frame(width: 206)
+            .frame(width: 174)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: TrackListMetrics.bottomGlassCornerRadius, style: .continuous)
                 .fill(.ultraThinMaterial)
@@ -2471,8 +2327,8 @@ private struct TransportButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 22, weight: .bold))
-                .frame(width: 46, height: 46)
+                .font(.system(size: 19, weight: .regular))
+                .frame(width: 38, height: 38)
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle().inset(by: -8))
@@ -2484,142 +2340,11 @@ private struct ModeCluster: View {
     @Binding var selectedMode: PlaybackMode
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             ForEach(PlaybackMode.allCases) { mode in
                 ModeButton(mode: mode, selectedMode: $selectedMode)
             }
         }
-    }
-}
-
-private struct VolumeControl: View {
-    @EnvironmentObject private var player: AudioPlayerService
-    @State private var hovering = false
-    @State private var collapseWorkItem: DispatchWorkItem?
-
-    var body: some View {
-        Button {} label: {
-            Image(systemName: player.volume <= 0.01 ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                .font(.system(size: 18, weight: .bold))
-                .frame(width: 40, height: 40)
-                .foregroundStyle(AppColors.accent)
-                .background(
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .fill(AppColors.controlFill)
-                )
-        }
-        .buttonStyle(.plain)
-        .contentShape(Rectangle().inset(by: -8))
-        .overlay(alignment: .top) {
-            if hovering {
-                VerticalVolumeSlider(value: $player.volume)
-                    .offset(y: -132)
-                    .transition(.identity)
-                    .onHover { inside in
-                        inside ? showSlider() : scheduleCollapse()
-                    }
-            }
-        }
-        .onHover { inside in
-            inside ? showSlider() : scheduleCollapse()
-        }
-        .help("音量")
-    }
-
-    private func showSlider() {
-        collapseWorkItem?.cancel()
-        hovering = true
-    }
-
-    private func scheduleCollapse() {
-        collapseWorkItem?.cancel()
-        let item = DispatchWorkItem {
-            hovering = false
-        }
-        collapseWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.28, execute: item)
-    }
-}
-
-private struct VerticalVolumeSlider: View {
-    @Binding var value: Double
-
-    var body: some View {
-        VolumeSliderBridge(value: $value)
-        .frame(width: 38, height: 118)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay {
-            Capsule()
-                .stroke(AppColors.searchStroke.opacity(0.65), lineWidth: 1)
-        }
-        .shadow(color: AppColors.shadow.opacity(0.75), radius: 14, y: 8)
-    }
-}
-
-private struct VolumeSliderBridge: NSViewRepresentable {
-    @Binding var value: Double
-
-    func makeNSView(context: Context) -> VolumeSliderView {
-        let view = VolumeSliderView()
-        view.onChange = { value = $0 }
-        view.value = value
-        return view
-    }
-
-    func updateNSView(_ nsView: VolumeSliderView, context: Context) {
-        nsView.onChange = { value = $0 }
-        nsView.value = value
-    }
-}
-
-private final class VolumeSliderView: NSView {
-    var onChange: ((Double) -> Void)?
-    var value: Double = 0.85 {
-        didSet {
-            value = min(max(value, 0), 1)
-            needsDisplay = true
-        }
-    }
-
-    override var acceptsFirstResponder: Bool { true }
-
-    override func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(self)
-        updateValue(with: event)
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        updateValue(with: event)
-    }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-
-        let trackRect = NSRect(x: bounds.midX - 3.5, y: 13, width: 7, height: bounds.height - 26)
-        AppNSColors.placeholderFill.setFill()
-        NSBezierPath(roundedRect: trackRect, xRadius: 3.5, yRadius: 3.5).fill()
-
-        let fillHeight = max(8, trackRect.height * CGFloat(value))
-        let fillRect = NSRect(x: trackRect.minX, y: trackRect.minY, width: trackRect.width, height: fillHeight)
-        AppNSColors.accent.setFill()
-        NSBezierPath(roundedRect: fillRect, xRadius: 3.5, yRadius: 3.5).fill()
-
-        let knobRect = NSRect(x: bounds.midX - 9, y: trackRect.minY + fillHeight - 9, width: 18, height: 18)
-        NSColor.white.setFill()
-        NSBezierPath(ovalIn: knobRect).fill()
-    }
-
-    private func updateValue(with event: NSEvent) {
-        let location = convert(event.locationInWindow, from: nil)
-        let trackHeight = max(bounds.height - 26, 1)
-        let y = min(max(location.y - 13, 0), trackHeight)
-        let next = Double(y / trackHeight)
-        value = next
-        onChange?(next)
     }
 }
 
@@ -2629,12 +2354,12 @@ private struct NowPlayingMini: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            ArtworkView(url: track.flatMap { library.artworkURL(for: $0) }, size: 58)
+            ArtworkView(url: track.flatMap { library.artworkURL(for: $0) }, size: 46)
 
             VStack(alignment: .leading, spacing: 4) {
                 MarqueeText(
                     text: track?.displayTitle ?? "未播放",
-                    font: .systemFont(ofSize: 16, weight: .heavy),
+                    font: .systemFont(ofSize: 14, weight: .semibold),
                     color: AppNSColors.primaryText
                 )
                 .frame(maxWidth: .infinity)
@@ -2642,7 +2367,7 @@ private struct NowPlayingMini: View {
 
                 MarqueeText(
                     text: "\(track?.displayArtist ?? "-") - \(track?.displayAlbum ?? "-")",
-                    font: .systemFont(ofSize: 13, weight: .medium),
+                    font: .systemFont(ofSize: 12, weight: .regular),
                     color: AppNSColors.secondaryText
                 )
                 .frame(maxWidth: .infinity)
@@ -2662,12 +2387,12 @@ private struct ModeButton: View {
             selectedMode = mode
         } label: {
             Image(systemName: mode.systemImage)
-                .font(.system(size: 18, weight: .bold))
-                .frame(width: 40, height: 40)
+                .font(.system(size: 18, weight: .regular))
+                .frame(width: 34, height: 34)
             .foregroundStyle(selectedMode == mode ? AppColors.accent : AppColors.mutedText)
             .background(
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(selectedMode == mode ? AppColors.accent.opacity(0.12) : AppColors.controlFill)
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(selectedMode == mode ? AppColors.accent.opacity(0.09) : Color.clear)
             )
         }
         .buttonStyle(.plain)

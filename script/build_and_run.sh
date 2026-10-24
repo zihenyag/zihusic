@@ -5,8 +5,9 @@ MODE="${1:-run}"
 APP_NAME="zihusic"
 BUNDLE_ID="com.local.zihusic"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="${APP_VERSION:-0.3.0}"
+APP_VERSION="${APP_VERSION:-0.4.0}"
 CONFIGURATION="${CONFIGURATION:-release}"
+CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY:--}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -69,6 +70,13 @@ cat >"$INFO_PLIST" <<PLIST
   <string>$APP_VERSION</string>
   <key>CFBundleVersion</key>
   <string>$APP_VERSION</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>发现并连接同一网络上的 AirPlay 扬声器。</string>
+  <key>NSBonjourServices</key>
+  <array>
+    <string>_airplay._tcp</string>
+    <string>_raop._tcp</string>
+  </array>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
 </dict>
@@ -80,7 +88,7 @@ if command -v xattr >/dev/null 2>&1; then
 fi
 
 if command -v codesign >/dev/null 2>&1; then
-  codesign --force --deep --sign - "$APP_BUNDLE"
+  codesign --force --deep --sign "$CODE_SIGN_IDENTITY" "$APP_BUNDLE"
   codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 fi
 
@@ -88,9 +96,40 @@ open_app() {
   /usr/bin/open -n "$APP_BUNDLE"
 }
 
+install_app() {
+  local destination="/Applications/$APP_NAME.app"
+  local staging
+  local backup
+  if [[ -e "$destination" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$destination/Contents/Info.plist")" != "$BUNDLE_ID" ]]; then
+      echo "Refusing to replace a different application at $destination" >&2
+      return 1
+    fi
+    backup="$(mktemp -d "$DIST_DIR/installed-backup.XXXXXX")"
+    /usr/bin/ditto "$destination" "$backup/$APP_NAME.app"
+    echo "Previous installed app saved to $backup/$APP_NAME.app"
+  fi
+  staging="$(mktemp -d "/Applications/.$APP_NAME-install.XXXXXX")"
+  /usr/bin/ditto "$APP_BUNDLE" "$staging/$APP_NAME.app"
+  if [[ -e "$destination" ]]; then mv "$destination" "$staging/previous.app"; fi
+  if ! mv "$staging/$APP_NAME.app" "$destination"; then
+    if [[ -e "$staging/previous.app" ]]; then mv "$staging/previous.app" "$destination"; fi
+    return 1
+  fi
+  rm -rf "$staging"
+  codesign --verify --deep --strict --verbose=2 "$destination"
+  /usr/bin/open -n "$destination"
+}
+
 case "$MODE" in
   run)
     open_app
+    ;;
+  --package|package)
+    echo "Packaged $APP_BUNDLE ($APP_VERSION)"
+    ;;
+  --install|install)
+    install_app
     ;;
   --debug|debug)
     lldb -- "$APP_BINARY"
@@ -109,7 +148,7 @@ case "$MODE" in
     pgrep -x "$APP_NAME" >/dev/null
     ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
+    echo "usage: $0 [run|--package|--install|--debug|--logs|--telemetry|--verify]" >&2
     exit 2
     ;;
 esac

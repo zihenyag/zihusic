@@ -1,670 +1,80 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="zihusic - 音乐播放器" />
-  <meta name="theme-color" content="#fbf7ff" />
-  <title>zihusic - 优雅的 macOS 本地音乐播放器</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="zihusic，一款轻量、优雅的 macOS 本地音乐播放器。支持无损音频、同步歌词、封面与标签编辑，以及 AirPlay 多设备播放。">
+  <meta name="theme-color" content="#f7f6f2">
+  <meta property="og:title" content="zihusic · 轻量，优雅的本地音乐播放器">
+  <meta property="og:description" content="音乐留在本地。封面、歌词和播放，刚好在一起。">
+  <meta property="og:image" content="https://zihenyag.github.io/zihusic/public/player-light.webp">
+  <title>zihusic · 轻量，优雅的本地音乐播放器</title>
+  <link rel="icon" href="public/icon.png" type="image/png">
   <style>
-    :root {
-      /* 核心粉紫调色板 */
-      --primary: #8a63ff;
-      --primary-light: #a484ff;
-      --pink: #ff7ac7;
-      --pink-light: #ff9ee0;
-      
-      /* 文本与背景 */
-      --bg: #fdfcff;
-      --text-main: #2d243f;
-      --text-muted: #786e8c;
-      
-      /* 卡片与边框 */
-      --card-bg: rgba(255, 255, 255, 0.65);
-      --card-border: rgba(255, 255, 255, 0.8);
-      --line: rgba(138, 99, 255, 0.15);
-      
-      /* 阴影 */
-      --shadow-color: rgba(138, 99, 255, 0.06);
-      --shadow-sm: 0 4px 12px var(--shadow-color);
-      --shadow-md: 0 12px 32px var(--shadow-color);
-      --shadow-lg: 0 24px 64px rgba(138, 99, 255, 0.12);
-      
-      --radius: 24px;
-      --radius-lg: 32px;
-    }
-
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      -webkit-font-smoothing: antialiased;
-    }
-
-    html {
-      scroll-behavior: smooth;
-    }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
-      background-color: var(--bg);
-      color: var(--text-main);
-      line-height: 1.6;
-      overflow-x: hidden;
-      position: relative;
-    }
-
-    /* 优雅的粉紫弥散光背景 */
-    body::before, body::after {
-      content: "";
-      position: absolute;
-      border-radius: 50%;
-      filter: blur(100px);
-      z-index: -1;
-      opacity: 0.3;
-      pointer-events: none;
-    }
-    
-    body::before {
-      top: -10%; left: -10%;
-      width: 600px; height: 600px;
-      background: var(--primary-light);
-    }
-    
-    body::after {
-      top: 20%; right: -5%;
-      width: 500px; height: 500px;
-      background: var(--pink-light);
-    }
-
-    a {
-      text-decoration: none;
-      color: inherit;
-    }
-
-    .container {
-      width: min(1120px, calc(100% - 48px));
-      margin: 0 auto;
-    }
-
-    /* 导航栏 - 悬浮胶囊风 */
-    .nav-wrap {
-      position: sticky;
-      top: 24px;
-      z-index: 100;
-      display: flex;
-      justify-content: center;
-      margin-bottom: 40px;
-    }
-
-    .nav {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 32px;
-      padding: 12px 20px 12px 24px;
-      background: rgba(255, 255, 255, 0.6);
-      backdrop-filter: blur(24px) saturate(1.5);
-      border: 1px solid var(--card-border);
-      border-radius: 999px;
-      box-shadow: var(--shadow-sm);
-    }
-
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-weight: 700;
-      font-size: 16px;
-      color: var(--primary);
-    }
-
-    .brand-icon {
-      display: grid;
-      place-items: center;
-      width: 28px; height: 28px;
-      border-radius: 10px;
-      background: linear-gradient(135deg, var(--primary), var(--pink));
-      color: white;
-      font-size: 14px;
-    }
-
-    .nav-links {
-      display: flex;
-      gap: 24px;
-      font-size: 14px;
-      font-weight: 500;
-      color: var(--text-muted);
-    }
-
-    .nav-links a {
-      transition: color 0.2s;
-    }
-
-    .nav-links a:hover {
-      color: var(--primary);
-    }
-
-    /* 按钮 */
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      height: 48px;
-      padding: 0 28px;
-      border-radius: 999px;
-      font-size: 15px;
-      font-weight: 600;
-      transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-      cursor: pointer;
-    }
-
-    .btn-primary {
-      background: linear-gradient(135deg, var(--primary), var(--pink));
-      color: #fff;
-      box-shadow: 0 8px 20px rgba(138, 99, 255, 0.25);
-    }
-
-    .btn-primary:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 12px 28px rgba(138, 99, 255, 0.35);
-    }
-
-    .btn-secondary {
-      background: rgba(255, 255, 255, 0.5);
-      color: var(--text-main);
-      border: 1px solid var(--line);
-      backdrop-filter: blur(12px);
-    }
-
-    .btn-secondary:hover {
-      background: #fff;
-      border-color: var(--primary-light);
-      transform: translateY(-2px);
-    }
-
-    /* Hero Section - 左右布局 */
-    .hero {
-      display: grid;
-      grid-template-columns: 1fr 1.2fr;
-      gap: 40px;
-      align-items: center;
-      padding: 60px 0 120px;
-    }
-
-    .hero-text {
-      text-align: left;
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 16px;
-      background: rgba(138, 99, 255, 0.08);
-      border: 1px solid rgba(138, 99, 255, 0.15);
-      border-radius: 999px;
-      color: var(--primary);
-      font-size: 13px;
-      font-weight: 600;
-      margin-bottom: 24px;
-    }
-
-    .hero h1 {
-      font-size: clamp(40px, 5vw, 64px);
-      line-height: 1.15;
-      letter-spacing: -0.04em;
-      margin-bottom: 24px;
-      font-weight: 800;
-    }
-
-    .gradient-text {
-      background: linear-gradient(135deg, var(--primary), var(--pink));
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-
-    .hero p {
-      font-size: clamp(16px, 2vw, 18px);
-      color: var(--text-muted);
-      margin-bottom: 40px;
-      max-width: 480px;
-    }
-
-    .hero-actions {
-      display: flex;
-      gap: 16px;
-    }
-
-    /* 错层截图展示 */
-    .hero-showcase {
-      position: relative;
-      height: 540px;
-      perspective: 1200px;
-    }
-
-    .screen-float {
-      position: absolute;
-      border-radius: 8px;
-      filter: drop-shadow(0 24px 40px rgba(138, 99, 255, 0.16));
-      transition: transform 0.4s ease;
-      background: transparent;
-    }
-
-    .screen-float img {
-      display: block;
-      width: 100%;
-      border-radius: 8px;
-    }
-
-    .screen-label {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text-muted);
-      margin-bottom: 8px;
-      padding-left: 4px;
-      letter-spacing: 0.02em;
-    }
-
-    /* 轻微缓动浮动动画 */
-    @keyframes floatSlow {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-12px); }
-    }
-
-    @keyframes floatSlower {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-8px); }
-    }
-
-    .screen-dark {
-      bottom: 20px;
-      left: 0;
-      width: 82%;
-      z-index: 2;
-      animation: floatSlow 7s ease-in-out infinite;
-      animation-delay: -3s;
-    }
-
-    .screen-light {
-      top: 20px;
-      right: 0;
-      width: 75%;
-      z-index: 1;
-      animation: floatSlower 8s ease-in-out infinite;
-    }
-
-    .screen-float:hover {
-      animation-play-state: paused;
-      z-index: 10;
-    }
-
-    /* 功能特性网格 */
-    .section {
-      padding: 80px 0;
-    }
-
-    .section-title {
-      text-align: center;
-      margin-bottom: 64px;
-    }
-
-    .section-title h2 {
-      font-size: 36px;
-      margin-bottom: 16px;
-      letter-spacing: -0.02em;
-    }
-
-    .section-title p {
-      color: var(--text-muted);
-      font-size: 18px;
-    }
-
-    .feature-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 24px;
-    }
-
-    .feature-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: var(--radius);
-      padding: 40px 32px;
-      backdrop-filter: blur(20px);
-      box-shadow: var(--shadow-sm);
-      transition: all 0.3s;
-    }
-
-    .feature-card:hover {
-      box-shadow: var(--shadow-md);
-      border-color: var(--line);
-      background: rgba(255, 255, 255, 0.85);
-      transform: translateY(-2px);
-    }
-
-    .feature-icon-wrap {
-      width: 48px; height: 48px;
-      background: linear-gradient(135deg, rgba(138,99,255,0.1), rgba(255,122,199,0.1));
-      border-radius: 14px;
-      display: grid;
-      place-items: center;
-      font-size: 20px;
-      color: var(--primary);
-      margin-bottom: 24px;
-    }
-
-    .feature-card h3 {
-      font-size: 18px;
-      margin-bottom: 10px;
-      font-weight: 700;
-    }
-
-    .feature-card p {
-      color: var(--text-muted);
-      font-size: 15px;
-      line-height: 1.7;
-    }
-
-    /* 编辑功能对比区 */
-    .edit-showcase {
-      display: flex;
-      justify-content: center;
-      gap: 40px;
-      margin-top: 40px;
-    }
-
-    .edit-screen {
-      width: 22.5%;
-      transition: transform 0.4s ease;
-    }
-    
-    .edit-screen:hover {
-      transform: translateY(-4px) scale(1.01) !important;
-    }
-
-    .edit-screen img {
-      width: 100%;
-      border-radius: 8px;
-      filter: drop-shadow(0 18px 32px rgba(138, 99, 255, 0.14));
-    }
-
-    /* 歌词与代码演示 */
-    .lyrics-section {
-      display: grid;
-      grid-template-columns: 1fr 1.2fr;
-      gap: 48px;
-      align-items: center;
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: var(--radius-lg);
-      padding: 48px;
-      backdrop-filter: blur(20px);
-      box-shadow: var(--shadow-md);
-      margin: 80px auto;
-    }
-
-    .format-tags {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-top: 24px;
-    }
-
-    .tag {
-      padding: 6px 14px;
-      background: rgba(138, 99, 255, 0.06);
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--primary);
-    }
-
-    .mac-window {
-      background: linear-gradient(145deg, #2b223c, #1f182e);
-      border-radius: 20px;
-      padding: 24px;
-      box-shadow: 0 20px 50px rgba(0,0,0,0.15);
-      color: #fff;
-      border: 1px solid rgba(255,255,255,0.1);
-    }
-
-    .mac-dots {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 24px;
-    }
-
-    .mac-dot {
-      width: 12px; height: 12px; border-radius: 50%;
-    }
-    .mac-dot.r { background: #ff5f56; }
-    .mac-dot.y { background: #ffbd2e; }
-    .mac-dot.g { background: #27c93f; }
-
-    .lyric-lines {
-      font-size: 16px;
-      line-height: 2.2;
-      color: rgba(255,255,255,0.4);
-    }
-
-    .lyric-lines .active {
-      color: #fff;
-      font-size: 20px;
-      font-weight: 700;
-      text-shadow: 0 0 20px rgba(255, 122, 199, 0.4);
-    }
-
-    .code-block {
-      margin-top: 24px;
-      padding: 16px;
-      background: rgba(0,0,0,0.25);
-      border-radius: 12px;
-      font-family: "SF Mono", Consolas, monospace;
-      font-size: 13px;
-      color: #bfaaff;
-      white-space: pre-wrap;
-      border: 1px solid rgba(255,255,255,0.05);
-    }
-
-    /* 底部下载 CTA */
-    .cta-card {
-      text-align: center;
-      padding: 80px 40px;
-      background: linear-gradient(135deg, rgba(138, 99, 255, 0.05), rgba(255, 122, 199, 0.05));
-      border: 1px solid var(--line);
-      border-radius: var(--radius-lg);
-      margin-bottom: 80px;
-    }
-
-    .cta-card h2 {
-      font-size: 32px;
-      margin-bottom: 20px;
-    }
-
-    /* 页脚 */
-    footer {
-      text-align: center;
-      padding: 40px 0;
-      color: var(--text-muted);
-      font-size: 14px;
-      border-top: 1px solid rgba(138, 99, 255, 0.1);
-    }
-
-    footer a {
-      color: var(--primary);
-      font-weight: 600;
-    }
-
-    /* 响应式 */
-    @media (max-width: 960px) {
-      .hero {
-        grid-template-columns: 1fr;
-        text-align: center;
-        padding-top: 20px;
-      }
-      .hero-p { margin: 0 auto 40px; }
-      .hero-actions { justify-content: center; }
-      .hero-showcase { height: 420px; margin-top: 40px; }
-      .screen-light { top: 0; right: 5%; width: 65%; }
-      .screen-dark { bottom: 0; left: 5%; width: 75%; }
-    }
-
-    @media (max-width: 768px) {
-      .nav-links { display: none; }
-      .nav { justify-content: center; }
-      .feature-grid { grid-template-columns: 1fr; }
-      .edit-showcase { flex-direction: column; align-items: center; }
-      .edit-screen { width: 45%; transform: none !important; }
-      .lyrics-section { grid-template-columns: 1fr; padding: 32px; }
-      .hero h1 { font-size: 36px; }
-      .hero-showcase { height: 320px; }
-    }
+    :root{color-scheme:light;--bg:#f7f6f2;--surface:#eeede8;--ink:#242322;--muted:#706d68;--line:#d9d7d0;--accent:#6e5c95;--button:#292725;--button-ink:#fff;--mono:"SFMono-Regular",Consolas,monospace;--sans:"Helvetica Neue","PingFang SC","Hiragino Sans GB",sans-serif;--radius:12px}
+    [data-theme=dark]{color-scheme:dark;--bg:#17171a;--surface:#202024;--ink:#ecebe7;--muted:#a5a39f;--line:#38373c;--accent:#c3b0e5;--button:#ecebe7;--button-ink:#222}
+    *{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:100px}body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;line-height:1.65}a{color:inherit;text-decoration:none}button{font:inherit}button,a{-webkit-tap-highlight-color:transparent}a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:5px}button{cursor:pointer}img{display:block;max-width:100%;height:auto}svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.35;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}h1,h2,h3,p,figure{margin:0}h1,h2,h3{font-weight:500;line-height:1.2}h1{font-size:clamp(46px,6.3vw,82px);letter-spacing:-.055em}h2{font-size:clamp(30px,3.3vw,44px);letter-spacing:-.04em}h3{font-size:20px;letter-spacing:-.02em}p{color:var(--muted)}.wrap{width:min(1180px,calc(100% - 96px));margin:auto}.nav{height:94px;display:flex;align-items:center;justify-content:space-between;gap:24px;border-bottom:1px solid var(--line)}.brand{display:flex;align-items:center;gap:11px;font-size:25px;letter-spacing:-1px;font-weight:500}.brand img{width:34px;height:34px;border-radius:8px}.nav-links{display:flex;align-items:center;gap:30px;font-size:13px}.nav-links a:hover,.text-link:hover{color:var(--accent)}.nav-download{border:1px solid var(--line);padding:7px 17px;border-radius:6px}.hero{padding:82px 0 54px;display:grid;grid-template-columns:1.6fr 1fr;align-items:end;gap:60px}.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.09em;color:var(--muted);display:flex;gap:12px;align-items:center;margin-bottom:24px}.eyebrow .dot{width:6px;height:6px;background:var(--accent);border-radius:50%}.hero h1 span{color:var(--muted)}.hero-aside{padding-bottom:6px}.hero-aside>p{max-width:340px;font-size:16px}.actions{display:flex;align-items:center;flex-wrap:wrap;gap:22px;margin-top:27px}.button{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:46px;padding:10px 20px;border:1px solid transparent;border-radius:7px;background:var(--button);color:var(--button-ink);font-size:14px;transition:opacity .18s,transform .18s}.button:hover{opacity:.8;transform:translateY(-1px)}.text-link{font-size:13px;display:inline-flex;align-items:center;gap:7px}.text-link svg{width:15px;height:15px}.hero-aside>.requirements{font-size:11px;max-width:none}.requirements{font-family:var(--mono);font-size:10px;letter-spacing:.02em;margin-top:16px}.showcase{position:relative}.screen{overflow:hidden;border:1px solid var(--line);border-radius:14px;box-shadow:0 24px 60px -35px #15102455;background:var(--surface)}.screen img{width:100%;aspect-ratio:2360/1576;object-fit:contain}.image-dark{display:none}[data-theme=dark] .image-dark{display:block}[data-theme=dark] .image-light{display:none}.caption{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 0;font-size:12px;color:var(--muted)}.theme-switch{display:flex;padding:3px;border:1px solid var(--line);border-radius:7px;gap:3px}.theme-switch button{font-size:11px;line-height:1.5;border:0;color:var(--muted);background:transparent;padding:5px 13px;border-radius:4px}.theme-switch button[aria-pressed=true]{color:var(--ink);background:var(--surface)}.theme-switch button:hover{color:var(--ink)}.overview{display:grid;grid-template-columns:repeat(3,1fr);gap:42px;padding:64px 0 88px}.overview article{border-top:1px solid var(--line);padding-top:22px}.overview h3{font-size:19px;margin-bottom:13px}.overview p{font-size:14px;line-height:1.9}.section{border-top:1px solid var(--line);padding:82px 0}.section-heading{display:grid;grid-template-columns:1fr 1fr;gap:64px;margin-bottom:46px;align-items:end}.section-heading p{font-size:15px;max-width:450px;line-height:1.9}.label{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--accent);margin-bottom:15px}.library-specs{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--line)}.spec{padding:23px 0;border-bottom:1px solid var(--line);display:grid;grid-template-columns:110px 1fr;gap:20px;font-size:13px}.spec:nth-child(odd){padding-right:35px}.spec:nth-child(even){padding-left:35px}.spec dt{color:var(--ink)}.spec dd{margin:0;color:var(--muted)}.split{display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center}.split-copy>p{font-size:15px;line-height:1.9;margin-top:20px;max-width:400px}.notes{padding:0;margin:25px 0 0;list-style:none}.notes li{font-size:13px;color:var(--muted);padding:9px 0;border-bottom:1px solid var(--line)}.lyric-crop{border-radius:var(--radius);background:var(--surface);overflow:hidden;aspect-ratio:1/1}.lyric-crop img{width:230%;max-width:none;height:100%;object-fit:cover;object-position:right center;margin-left:-130%}.file-pair{margin-top:26px;font:12px/1.9 var(--mono);display:flex;gap:20px;color:var(--muted)}.edit-stage{min-height:410px;display:flex;align-items:center;justify-content:center;gap:20px;background:var(--surface);border-radius:var(--radius);padding:38px}.edit-stage img{width:min(62%,240px);max-height:370px;object-fit:contain;filter:drop-shadow(0 12px 16px #0002);border-radius:9px}.edit-stage img+img{margin-left:-60px;transform:translateY(25px)}.airplay{background:var(--surface);border-radius:var(--radius);padding:44px;display:grid;grid-template-columns:1.1fr 1fr;gap:70px;align-items:start}.airplay h2{font-size:35px}.airplay p{font-size:14px;margin-top:18px;max-width:430px;line-height:1.9}.airplay-list{margin:0;padding:0;list-style:none}.airplay-list li{display:grid;grid-template-columns:26px 1fr;gap:15px;padding:16px 0;border-bottom:1px solid var(--line)}.airplay-list li:first-child{padding-top:0}.airplay-list strong{font-size:14px;font-weight:500;display:block;margin-bottom:3px}.airplay-list span{font-size:12px;color:var(--muted)}.airplay-footnote{font-size:11px!important;color:var(--muted);line-height:1.8!important}.download{display:grid;grid-template-columns:1fr 1fr;gap:80px;align-items:start}.download p{font-size:14px;margin-top:18px}.download h2{margin-top:12px}.install{list-style:none;counter-reset:steps;padding:0;margin:0}.install li{counter-increment:steps;display:flex;gap:18px;padding:20px 0;border-top:1px solid var(--line);font-size:14px}.install li:before{content:"0" counter(steps);font:11px var(--mono);color:var(--muted);padding-top:5px}.install small{display:block;color:var(--muted);font-size:12px;margin-top:4px}.install-details{border-top:1px solid var(--line);padding-top:17px;font-size:12px;color:var(--muted)}summary{cursor:pointer;color:var(--ink)}.install-details p{font-size:12px;margin:12px 0}.install-details code{display:block;background:var(--surface);border-radius:5px;padding:12px;font:11px/1.7 var(--mono);overflow-wrap:anywhere;user-select:all}footer{border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:20px;padding:26px 0 36px;font-size:11px;color:var(--muted)}footer a:hover{color:var(--ink)}.footer-links{display:flex;gap:23px}
+    @media(min-width:1600px){.hero{padding-top:100px}}
+    @media(max-width:900px){.wrap{width:calc(100% - 48px)}.hero{gap:32px;grid-template-columns:1.25fr 1fr;padding-top:60px}h1{font-size:56px}.hero-aside>p{font-size:14px}.overview{gap:25px}.section-heading,.split{gap:35px}.airplay{padding:30px;gap:35px}.download{gap:40px}.spec{grid-template-columns:80px 1fr;gap:10px}.spec:nth-child(odd){padding-right:20px}.spec:nth-child(even){padding-left:20px}.edit-stage{min-height:350px;padding:25px}}
+    @media(max-width:640px){.wrap{width:calc(100% - 36px)}.nav{height:76px}.brand{font-size:23px}.brand img{width:30px;height:30px}.nav-links{gap:16px}.nav-links .desktop-link{display:none}.hero{grid-template-columns:1fr;gap:26px;padding:46px 0 33px}h1{font-size:clamp(43px,11vw,66px);letter-spacing:-.05em}.eyebrow{margin-bottom:18px}.hero-aside>p{max-width:360px;font-size:14px}.actions{margin-top:22px}.requirements{margin-top:13px}.screen{border-radius:8px}.caption{align-items:flex-start;font-size:10px;padding:15px 0}.caption>span{max-width:180px}.theme-switch button{padding:4px 10px}.overview{grid-template-columns:1fr;gap:24px;padding:34px 0 48px}.overview article{padding-top:18px}.overview p{font-size:13px}.section{padding:48px 0}.section-heading,.split,.airplay,.download{grid-template-columns:1fr;gap:27px}.section-heading{margin-bottom:28px}.section-heading p,.split-copy>p{font-size:14px}.library-specs{grid-template-columns:1fr}.spec:nth-child(n){padding:18px 0;grid-template-columns:80px 1fr}.split-copy{order:0}.split-media{order:1}.lyric-crop{aspect-ratio:1.2/1}.edit-stage{min-height:340px}.airplay{padding:26px;gap:30px}.airplay h2{font-size:30px}.airplay p{font-size:13px}.download{gap:35px}.download h2{font-size:34px}footer{flex-wrap:wrap;padding-bottom:27px}.footer-links{gap:20px}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important}}
   </style>
 </head>
 <body>
-
-  <!-- 顶部导航 -->
-  <div class="nav-wrap">
-    <nav class="nav container">
-      <a href="#top" class="brand">
-        <span class="brand-icon">♪</span>
-        zihusic
-      </a>
-      <div class="nav-links">
-        <a href="#top">概览</a>
-        <a href="#features">功能</a>
-        <a href="#edit">编辑</a>
-        <a href="#lyrics">歌词</a>
-        <a href="https://github.com/zihenyag/zihusic" target="_blank">GitHub</a>
+  <div class="wrap">
+    <header class="nav">
+      <a class="brand" href="#top" aria-label="zihusic 首页"><img src="public/icon.png" width="34" height="34" alt="">zihusic</a>
+      <nav class="nav-links" aria-label="主导航">
+        <a class="desktop-link" href="#library">本地曲库</a><a class="desktop-link" href="#lyrics">歌词</a><a class="desktop-link" href="#airplay">AirPlay</a>
+        <a href="https://github.com/zihenyag/zihusic">GitHub ↗</a><a class="nav-download" href="#download">下载</a>
+      </nav>
+    </header>
+    <main id="top">
+      <section class="hero" aria-labelledby="hero-title">
+        <div><div class="eyebrow"><span class="dot"></span> ZIHUSIC FOR macOS <span>v0.4.0</span></div><h1 id="hero-title">轻量，优雅。<br><span>音乐留在本地。</span></h1></div>
+        <div class="hero-aside"><p>一个原生 macOS 音乐播放器。<br>打开你的曲库，让封面、歌词和音乐一起回来。</p><div class="actions"><a class="button" href="https://github.com/zihenyag/zihusic/releases/download/v0.4.0/zihusic_app_v0.4.0.zip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4"/></svg>下载 macOS 版</a><a class="text-link" href="https://github.com/zihenyag/zihusic/releases/tag/v0.4.0">更新记录 ↗</a></div><p class="requirements">macOS 14+ · Apple Silicon · 免费开源</p></div>
+      </section>
+      <figure class="showcase">
+        <div class="screen"><img class="image-light" src="public/player-light.webp" width="2360" height="1576" alt="zihusic 新版浅色界面：本地曲库、专辑封面、双语歌词与悬浮播放控制"><img class="image-dark" src="public/player-dark.webp" width="2360" height="1576" alt="zihusic 新版深色界面：本地曲库、专辑封面与固定字号歌词"></div>
+        <figcaption class="caption"><span>封面、歌词、播放。一个窗口就够了。</span><div class="theme-switch" role="group" aria-label="预览外观"><button type="button" data-set-theme="light" aria-pressed="true">浅色</button><button type="button" data-set-theme="dark" aria-pressed="false">深色</button></div></figcaption>
+      </figure>
+      <div class="overview" id="features">
+        <article><h3>文件就在原来的地方</h3><p>导入音乐文件夹，不复制音频，不改变目录。重新扫描时只更新有变化的文件。</p></article>
+        <article><h3>日常听歌，顺手就好</h3><p>快速搜索、定位当前歌曲，随机或循环播放。下次打开，接着上次选中的歌。</p></article>
+        <article><h3>和 macOS 待在一起</h3><p>原生窗口与全屏，浅色、深色或跟随系统。收起侧边栏，留更多空间给封面和歌词。</p></article>
       </div>
-    </nav>
+      <section class="section" id="library" aria-labelledby="library-title">
+        <div class="section-heading"><div><div class="label">01 / 本地曲库</div><h2 id="library-title">你收藏的，<br>都好好放着。</h2></div><p>从一张专辑到整个音乐文件夹。紧凑列表、封面缩略图和快捷搜索，让常听的歌随时找得到。</p></div>
+        <dl class="library-specs"><div class="spec"><dt>音频格式</dt><dd>FLAC · MP3 · M4A · AAC · WAV · AIFF · CAF · ALAC</dd></div><div class="spec"><dt>播放方式</dt><dd>随机播放 · 单曲循环 · 列表循环</dd></div><div class="spec"><dt>曲目信息</dt><dd>封面、歌手、专辑、采样率、位深与声道</dd></div><div class="spec"><dt>曲库管理</dt><dd>文件夹导入、增量扫描、⌘F 搜索、当前歌曲定位</dd></div></dl>
+      </section>
+      <section class="section split" id="lyrics" aria-labelledby="lyrics-title">
+        <div class="split-copy"><div class="label">02 / 同步歌词</div><h2 id="lyrics-title">每一句，<br>看得舒服。</h2><p>同名歌词放在音频旁边，自动读取。固定字号、颜色高亮，翻译和长句也能完整展开。</p><ul class="notes"><li>支持 ASS、LRC 和内嵌 LRC 歌词</li><li>点击跳到那一句，滚轮自由浏览</li><li>停下浏览 3 秒，平滑回到正在唱的位置</li><li>本地缓存与后台预读，切歌更快显示</li></ul><div class="file-pair"><span>Song.flac<br>Song.lrc</span><span>或</span><span>Track.mp3<br>Track.ass</span></div></div>
+        <div class="lyric-crop split-media"><img class="image-light" src="public/player-light.webp" width="2360" height="1576" loading="lazy" alt="新版歌词区域，英文歌词与中文翻译逐行排版"><img class="image-dark" src="public/player-dark.webp" width="2360" height="1576" loading="lazy" alt="深色模式歌词区域"></div>
+      </section>
+      <section class="section split" id="edit" aria-labelledby="edit-title">
+        <div class="edit-stage split-media"><img src="public/light_edit.png" width="654" height="950" loading="lazy" alt="歌曲信息编辑：标题、歌手、专辑"><img src="public/dark_edit.png" width="630" height="958" loading="lazy" alt="深色歌曲信息编辑窗口"></div>
+        <div class="split-copy"><div class="label">03 / 封面与标签</div><h2 id="edit-title">整理曲库，<br>也不用离开播放器。</h2><p>双击歌曲名、歌手、专辑就能编辑。双击封面，换上喜欢的那一张。</p><ul class="notes"><li>修改立即更新到播放器</li><li>可将标签和封面写回本地音频文件</li></ul><p style="font-size:12px">写回 FLAC 需安装 metaflac；MP3、M4A、AAC 需 ffmpeg。未安装时仍可在曲库内编辑。</p></div>
+      </section>
+      <section class="section" id="airplay" aria-labelledby="airplay-title">
+        <div class="airplay"><div><div class="label">v0.4.0 新增 / AIRPLAY · 实验功能</div><h2 id="airplay-title">让另一台 Mac，<br>也一起唱。</h2><p>同一网络中的 AirPlay 接收器自动接入。启动时只有本机出声，想在哪台播放，再轻轻勾选。</p><p class="airplay-footnote">自动接入需辅助功能授权，接收端需开启 AirPlay 接收器。已在 Mac mini 与 MacBook Air 上验证；其他设备与网络的效果可能不同。不支持 iPad 接收。</p></div><ul class="airplay-list"><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 15a8 8 0 1 1 14 0M8 13a5 5 0 1 1 8 0M12 14l-5 7h10z"/></svg><div><strong>自动发现与接入</strong><span>App 打开后才上线的设备，也会再次检查。</span></div></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 9 4 0 5-4v14l-5-4H4zM17 8a6 6 0 0 1 0 8M20 5a10 10 0 0 1 0 14"/></svg><div><strong>每台设备，独立控制</strong><span>分别调音量、停止或恢复，停止时保留连接。</span></div></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10a8 8 0 0 0-14-4L3 9m0-5v5h5M4 14a8 8 0 0 0 14 4l3-3m0 5v-5h-5"/></svg><div><strong>需要时，重新对齐</strong><span>“播放 → AirPlay 全同步”，也可手动校准本机延迟。</span></div></li></ul></div>
+      </section>
+      <section class="section download" id="download" aria-labelledby="download-title"><div><div class="label">ZIHUSIC v0.4.0</div><h2 id="download-title">下一首，<br>从你的曲库开始。</h2><p>macOS 14 或更新版本 · Apple Silicon</p><div class="actions"><a class="button" href="https://github.com/zihenyag/zihusic/releases/download/v0.4.0/zihusic_app_v0.4.0.zip">下载 v0.4.0 <span aria-hidden="true">↓</span></a><a class="text-link" href="https://github.com/zihenyag/zihusic">查看源码 ↗</a></div></div><div><ol class="install"><li><div>下载并解压<small>打开 zihusic_app_v0.4.0.zip。</small></div></li><li><div>移入 Applications，再打开<small>当前为临时签名构建，尚未经过 Apple 公证。</small></div></li><li><div>选择你的音乐文件夹<small>使用 AirPlay 自动接入时，按提示授予辅助功能权限。</small></div></li></ol><details class="install-details"><summary>首次打开遇到 macOS 拦截？</summary><p>在“系统设置 → 隐私与安全性”中找到 zihusic，选择“仍要打开”。如果明确提示应用“已损坏”，确认下载来自本项目 Release 后，可在终端执行：</p><code>xattr -dr com.apple.quarantine /Applications/zihusic.app</code><p>更新后若 AirPlay 自动接入失效，在“辅助功能”中移除旧的 zihusic 条目，再添加 Applications 中的新版本。</p></details></div></section>
+    </main>
+    <footer><span>zihusic · by zihenyag</span><div class="footer-links"><a href="https://github.com/zihenyag/zihusic">GitHub</a><a href="https://github.com/zihenyag/zihusic/releases">Releases</a><a href="https://github.com/zihenyag/zihusic/blob/main/LICENSE">MIT License</a></div></footer>
   </div>
-
-  <main id="top" class="container">
-    <!-- 首屏介绍 (Hero) -->
-    <section class="hero">
-      <div class="hero-text">
-        <div class="badge">✦ macOS 原生体验</div>
-        <h1>让本地音乐<br><span class="gradient-text">漂亮又好听</span></h1>
-        <p class="hero-p">抛开流媒体的繁杂，zihusic 专注为你优雅地展示本地封⾯与歌词，为你带来最纯粹的听歌乐趣。</p>
-        <div class="hero-actions">
-          <a class="btn btn-primary" href="https://github.com/zihenyag/zihusic/releases/latest" target="_blank">下载最新版</a>
-          <a class="btn btn-secondary" href="https://github.com/zihenyag/zihusic" target="_blank">查看 GitHub</a>
-        </div>
-      </div>
-
-      <!-- 错层截图展示 -->
-      <div class="hero-showcase">
-        <div class="screen-float screen-light">
-          <div class="screen-label">Light Mode</div>
-          <img src="public/light.png" alt="浅色模式" />
-        </div>
-        <div class="screen-float screen-dark">
-          <div class="screen-label">Dark Mode</div>
-          <img src="public/dark.png" alt="深色模式" />
-        </div>
-      </div>
-    </section>
-
-    <!-- 核心特性 -->
-    <section id="features" class="section">
-      <div class="section-title">
-        <h2>就是为本地音乐而生</h2>
-        <p>轻量、干净，一个称职的 macOS 音乐伴侣</p>
-      </div>
-      <div class="feature-grid">
-        <div class="feature-card">
-          <div class="feature-icon-wrap">⌘</div>
-          <h3>原生视觉体验</h3>
-          <p>贴近 macOS 桌面应用规范。浅色清透，深色深邃，柔和的强调色点缀其间，绝不喧宾夺主。</p>
-        </div>
-        <div class="feature-card">
-          <div class="feature-icon-wrap">↻</div>
-          <h3>纯粹播放逻辑</h3>
-          <p>支持快速搜索，提供随机、单曲循环和列表循环。把最基础但也最重要的听歌体验做到极致。</p>
-        </div>
-        <div class="feature-card">
-          <div class="feature-icon-wrap">📁</div>
-          <h3>尊重本地习惯</h3>
-          <p>专为本地音乐库设计，不强迫改变文件归类习惯，不擅自搬运音频，完美契合你的本地归类方式。</p>
-        </div>
-        <div class="feature-card">
-          <div class="feature-icon-wrap">✎</div>
-          <h3>内建信息编辑</h3>
-          <p>可编辑封面、歌曲名、歌手、专辑等音乐信息，并同步更新本地文件，让本地库时刻保持整洁。</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- 编辑功能展示 -->
-    <section id="edit" class="section">
-      <div class="section-title">
-        <h2>管理你的音乐信息</h2>
-        <p>支持修改歌曲封面、歌曲名、歌手与专辑信息，让本地音乐库保持整洁</p>
-      </div>
-      <div class="edit-showcase">
-        <div class="edit-screen" style="transform: rotate(-1.5deg) translateY(10px);">
-          <div class="screen-label">Edit Info - Light</div>
-          <img src="public/light_edit.png" alt="浅色编辑界面" />
-        </div>
-        <div class="edit-screen dark" style="transform: rotate(1.5deg);">
-          <div class="screen-label">Edit Info - Dark</div>
-          <img src="public/dark_edit.png" alt="深色编辑界面" />
-        </div>
-      </div>
-    </section>
-
-    <!-- 歌词说明 -->
-    <section id="lyrics" class="lyrics-section">
-      <div>
-        <h2 style="font-size: 32px; margin-bottom: 16px;">同名歌词，自动浮现</h2>
-        <p style="color: var(--text-muted); font-size: 16px; line-height: 1.8;">
-          如果你习惯精心整理自己的曲库，zihusic 是你的最佳选择。只需将歌词放在音频旁边并保持同名，它就能自动读取展示。
-        </p>
-        <div class="format-tags">
-          <span class="tag">FLAC</span>
-          <span class="tag">MP3</span>
-          <span class="tag">WAV</span>
-          <span class="tag">AAC</span>
-          <span class="tag">ALAC</span>
-          <span class="tag">ASS</span>
-          <span class="tag">LRC</span>
-        </div>
-      </div>
-      
-      <div class="mac-window">
-        <div class="mac-dots">
-          <div class="mac-dot r"></div><div class="mac-dot y"></div><div class="mac-dot g"></div>
-        </div>
-        <div class="lyric-lines">
-          <div>00:41 夜色慢慢落进播放列表</div>
-          <div class="active">00:46 当前歌词在这里闪烁发光</div>
-          <div>00:52 封面、曲名和专辑刚好在旁边</div>
-        </div>
-        <div class="code-block">目录结构示例：
-/Music
-  ├── Song.flac
-  ├── Song.ass
-  ├── Track.mp3
-  └── Track.lrc</div>
-      </div>
-    </section>
-
-    <!-- 底部行动呼吁 -->
-    <section class="cta-card">
-      <h2>把 zihusic 放进 Applications</h2>
-      <p style="color: var(--text-muted); margin-bottom: 32px;">下载、解压、拖入应用程序，然后开始享受纯粹的音乐时光</p>
-      <a class="btn btn-primary" href="https://github.com/zihenyag/zihusic/releases/latest" target="_blank">立刻下载体验</a>
-    </section>
-  </main>
-
-  <footer>
-    <div class="container">
-      <p>Made with zihenyag · Open source on <a href="https://github.com/zihenyag/zihusic" target="_blank">GitHub</a></p>
-    </div>
-  </footer>
-
+  <script>
+    const root = document.documentElement;
+    const buttons = [...document.querySelectorAll('[data-set-theme]')];
+    function setTheme(theme) {
+      root.dataset.theme = theme;
+      buttons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.setTheme === theme)));
+      document.querySelector('meta[name="theme-color"]').content = theme === 'dark' ? '#17171a' : '#f7f6f2';
+      try { localStorage.setItem('zihusic-site-theme', theme); } catch {}
+    }
+    buttons.forEach(button => button.addEventListener('click', () => setTheme(button.dataset.setTheme)));
+    let saved;
+    try { saved = localStorage.getItem('zihusic-site-theme'); } catch {}
+    setTheme(saved === 'dark' || saved === 'light' ? saved : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  </script>
 </body>
 </html>

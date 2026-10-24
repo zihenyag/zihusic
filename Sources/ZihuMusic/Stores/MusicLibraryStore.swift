@@ -21,7 +21,10 @@ struct LibraryImportProgress: Equatable, Sendable {
 @MainActor
 final class MusicLibraryStore: ObservableObject {
     @Published var tracks: [MusicTrack] = [] {
-        didSet { rebuildVisibleTracks() }
+        didSet {
+            rebuildVisibleTracks()
+            prefetchLyrics()
+        }
     }
     @Published var selectedTrackID: MusicTrack.ID? {
         didSet {
@@ -42,6 +45,14 @@ final class MusicLibraryStore: ObservableObject {
     private let metadataService = MetadataService()
     private let metadataWriter = MetadataWriterService()
     private let lyricsService = LyricsService()
+    private var lyricsPrefetch: Task<Void, Never>?
+
+    private func prefetchLyrics() {
+        lyricsPrefetch?.cancel()
+        let preferred = selectedTrackID
+        let snapshot = tracks.sorted { $0.id == preferred && $1.id != preferred }
+        lyricsPrefetch = Task { await LyricsRepository.shared.prefetch(snapshot) }
+    }
 
     init() {
         load()

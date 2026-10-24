@@ -4,3 +4,8 @@ dist/
 *.xcuserdata/
 .codex/
 Sources/ZihuMusic/Icon/icon.original.png
+
+.codegraph/
+
+.swiftpm/
+.vscode/

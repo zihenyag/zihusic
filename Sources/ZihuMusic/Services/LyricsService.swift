@@ -120,13 +120,14 @@ struct LyricsService {
     }
 
     private func readText(at url: URL) -> String? {
-        if let text = try? String(contentsOf: url, encoding: .utf8) {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        if let text = String(data: data, encoding: .utf8) {
             return text
         }
-        if let text = try? String(contentsOf: url, encoding: .utf16) {
+        if let text = String(data: data, encoding: .utf16) {
             return text
         }
-        return try? String(contentsOf: url, encoding: .unicode)
+        return nil
     }
 
     private func parseASSTime(_ value: String) -> TimeInterval? {

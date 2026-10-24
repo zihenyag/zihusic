@@ -21,9 +21,11 @@ let package = Package(
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("AVFoundation"),
+                .linkedFramework("AVKit"),
                 .linkedFramework("SwiftUI"),
                 .linkedFramework("WebKit")
             ]
-        )
+        ),
+        .testTarget(name: "ZihuMusicTests", dependencies: ["ZihuMusic"])
     ]
 )
